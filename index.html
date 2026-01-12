@@ -1,0 +1,923 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>PASS / ACCELERATE (LCD-ish Race)</title>
+  <style>
+    :root{
+      --bg:#0e0f12;
+      --panel:#14161b;
+      --panel2:#0f1116;
+      --ink:#e9eef7;
+      --muted:#a8b0c0;
+      --line:#2a2f3a;
+      --good:#52ffa8;
+      --bad:#ff5c7a;
+      --btn:#1e2330;
+      --btn2:#2a3142;
+      --shadow: rgba(0,0,0,.35);
+      --r:16px;
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0;
+      background: radial-gradient(1000px 600px at 30% 10%, #1a1e27 0%, var(--bg) 55%) fixed;
+      color:var(--ink);
+      font: 14px/1.35 system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      display:flex;
+      justify-content:center;
+      padding:18px;
+    }
+    .wrap{
+      width:min(980px, 100%);
+      display:grid;
+      grid-template-columns: 1fr 320px;
+      gap:16px;
+    }
+    @media (max-width: 900px){
+      .wrap{grid-template-columns:1fr}
+    }
+    .card{
+      background: linear-gradient(180deg, var(--panel) 0%, var(--panel2) 100%);
+      border:1px solid var(--line);
+      border-radius: var(--r);
+      box-shadow: 0 10px 30px var(--shadow);
+      overflow:hidden;
+    }
+    .canvasWrap{padding:12px}
+    canvas{
+      width:100%;
+      height:520px;
+      display:block;
+      border-radius:12px;
+      background: #0b0c10;
+      border:1px solid #232938;
+    }
+    .side{
+      padding:14px;
+      display:flex;
+      flex-direction:column;
+      gap:12px;
+    }
+    .title{
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap:10px;
+      padding-bottom:10px;
+      border-bottom:1px solid var(--line);
+      margin-bottom:4px;
+    }
+    .title h1{
+      font-size:14px;
+      letter-spacing:.08em;
+      margin:0;
+      color:#dce6ff;
+      text-transform:uppercase;
+    }
+    .sub{
+      color:var(--muted);
+      font-size:12px;
+      margin-top:4px;
+    }
+    .row{
+      display:flex; gap:10px; align-items:center; justify-content:space-between;
+      padding:10px 12px;
+      border:1px solid var(--line);
+      border-radius:14px;
+      background: rgba(255,255,255,.03);
+    }
+    .row strong{font-weight:700}
+    .pill{
+      display:inline-flex;
+      align-items:center;
+      gap:8px;
+      padding:8px 10px;
+      border-radius:999px;
+      background: rgba(255,255,255,.04);
+      border:1px solid rgba(255,255,255,.08);
+      color:#dfe7ff;
+      font-size:12px;
+      min-width: 92px;
+      justify-content:center;
+    }
+    .fuel{
+      height:12px;
+      background:#0b0c10;
+      border:1px solid #232938;
+      border-radius:999px;
+      overflow:hidden;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.06);
+    }
+    .fuel > div{
+      height:100%;
+      width:50%;
+      background: linear-gradient(90deg, rgba(82,255,168,.9), rgba(82,255,168,.45));
+      border-right:1px solid rgba(255,255,255,.15);
+      transition: width .25s ease;
+    }
+    .controls{
+      display:grid;
+      grid-template-columns:1fr 1fr;
+      gap:10px;
+    }
+    .btn{
+      user-select:none;
+      cursor:pointer;
+      border:1px solid rgba(255,255,255,.12);
+      background: linear-gradient(180deg, var(--btn2), var(--btn));
+      color:var(--ink);
+      border-radius:18px;
+      padding:14px 12px;
+      font-weight:800;
+      letter-spacing:.06em;
+      box-shadow: 0 10px 24px rgba(0,0,0,.25);
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      gap:10px;
+      min-height:54px;
+      text-transform:uppercase;
+    }
+    .btn:active{transform: translateY(1px)}
+    .btn[disabled]{
+      opacity:.45;
+      cursor:not-allowed;
+      transform:none;
+    }
+    .btn.roll{
+      grid-column: 1 / -1;
+      font-size:15px;
+    }
+    .hint{
+      color:var(--muted);
+      font-size:12px;
+      padding:10px 12px;
+      border:1px dashed rgba(255,255,255,.12);
+      border-radius:14px;
+      background: rgba(255,255,255,.02);
+    }
+    .log{
+      border:1px solid var(--line);
+      border-radius:14px;
+      background: rgba(0,0,0,.18);
+      padding:10px 12px;
+      min-height:140px;
+      max-height:180px;
+      overflow:auto;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+      font-size:12px;
+      color:#d6ddf2;
+      white-space:pre-wrap;
+    }
+    .miniBtns{
+      display:flex;
+      gap:10px;
+    }
+    .mini{
+      cursor:pointer;
+      padding:10px 12px;
+      border-radius:14px;
+      border:1px solid rgba(255,255,255,.12);
+      background: rgba(255,255,255,.03);
+      color:var(--ink);
+      font-weight:700;
+      letter-spacing:.04em;
+      text-transform:uppercase;
+      flex:1;
+    }
+    .mini:active{transform: translateY(1px)}
+    .tag{
+      font-size:12px;
+      color:var(--muted);
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card canvasWrap">
+      <canvas id="c"></canvas>
+    </div>
+
+    <div class="card side">
+      <div class="title">
+        <div>
+          <h1>Pass / Accelerate</h1>
+          <div class="sub">Turn-based, LCD-ish race. No sharing a space.</div>
+        </div>
+        <div class="tag" id="seedTag"></div>
+      </div>
+
+      <div class="row">
+        <div>
+          <div class="tag">Fuel (turns left)</div>
+          <div style="margin-top:6px" class="fuel"><div id="fuelBar"></div></div>
+        </div>
+        <div class="pill"><span>⛽</span><strong id="fuelNum">0</strong></div>
+      </div>
+
+      <div class="row">
+        <div class="tag">Rolls</div>
+        <div style="display:flex;gap:10px">
+          <div class="pill">A: <strong id="rA">–</strong></div>
+          <div class="pill">B: <strong id="rB">–</strong></div>
+        </div>
+      </div>
+
+      <div class="controls">
+        <button class="btn roll" id="btnRoll">🎲 ROLL</button>
+        <button class="btn" id="btnAccel" disabled>⬆︎ ACCELERATE</button>
+        <button class="btn" id="btnPass" disabled>↔︎ PASS</button>
+      </div>
+
+      <div class="hint">
+        <div><strong>ACCELERATE:</strong> move forward by your roll (stop short if blocked).</div>
+        <div style="margin-top:6px"><strong>PASS:</strong> switch lanes only if your roll &gt; opponent’s roll (and the slot is empty).</div>
+      </div>
+
+      <div class="miniBtns">
+        <button class="mini" id="btnNew">NEW RACE</button>
+        <button class="mini" id="btnMute">SPEED: NORMAL</button>
+      </div>
+
+      <div class="log" id="log"></div>
+    </div>
+  </div>
+
+<script>
+(() => {
+  // ---------- utilities ----------
+  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+  const randInt = (rng, a, b) => Math.floor(rng() * (b - a + 1)) + a;
+
+  function mulberry32(seed){
+    let a = seed >>> 0;
+    return function(){
+      a |= 0; a = (a + 0x6D2B79F5) | 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    }
+  }
+
+  // ---------- canvas + dpi ----------
+  const canvas = document.getElementById('c');
+  const ctx = canvas.getContext('2d');
+  function fitCanvas(){
+    const rect = canvas.getBoundingClientRect();
+    const dpr = Math.max(1, window.devicePixelRatio || 1);
+    canvas.width = Math.floor(rect.width * dpr);
+    canvas.height = Math.floor(rect.height * dpr);
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+  }
+  window.addEventListener('resize', () => { fitCanvas(); draw(); });
+
+  // ---------- UI ----------
+  const elFuelNum = document.getElementById('fuelNum');
+  const elFuelBar = document.getElementById('fuelBar');
+  const elRA = document.getElementById('rA');
+  const elRB = document.getElementById('rB');
+  const elLog = document.getElementById('log');
+  const btnRoll = document.getElementById('btnRoll');
+  const btnAccel = document.getElementById('btnAccel');
+  const btnPass = document.getElementById('btnPass');
+  const btnNew = document.getElementById('btnNew');
+  const btnMute = document.getElementById('btnMute');
+  const seedTag = document.getElementById('seedTag');
+
+  function log(line){
+    elLog.textContent = (line + "\n" + elLog.textContent).slice(0, 2400);
+  }
+
+  // ---------- game params ----------
+  const TRACK_LEN = 60;      // indices 0..TRACK_LEN
+  const FUEL_MAX = 22;
+  const GRID_W = 24, GRID_H = 14; // for track generation
+  const COLORS = {
+    A: "#52ffa8",
+    B: "#ff5c7a",
+    track: "#2a3142",
+    trackGlow: "rgba(82,255,168,.08)"
+  };
+
+  let speedMode = "normal"; // "normal" | "fast"
+  function animMs(){ return speedMode === "fast" ? 140 : 260; }
+
+  // ---------- game state ----------
+  let rng, seed;
+  let track = [];         // array of points {x,y} grid coords
+  let laneA = 0, laneB = 1;
+  let posA = 0, posB = 0;
+  let fuel = FUEL_MAX;
+  let rollA = null, rollB = null;
+  let phase = "needRoll"; // needRoll -> needChoice -> resolving -> over
+  let choiceA = null, choiceB = null;
+  let msgFlash = null; // {text, color, t0, ms}
+
+  // animation positions (for smooth slide)
+  let anim = {
+    a: {pos:0, lane:0},
+    b: {pos:0, lane:1},
+    active:false,
+    t0:0,
+    ms:260,
+    from:null,
+    to:null
+  };
+
+  // ---------- track generation ----------
+  function generateTrack(){
+    // self-avoiding walk biased to the right; length TRACK_LEN+1 points
+    const used = new Set();
+    const start = {x:2, y: Math.floor(GRID_H/2)};
+    let p = {x:start.x, y:start.y};
+    const pts = [p];
+    used.add(`${p.x},${p.y}`);
+
+    // direction memory to reduce zigzag noise
+    let lastDir = {dx:1, dy:0};
+
+    for(let i=0;i<TRACK_LEN;i++){
+      const candidates = [
+        {dx: 1, dy: 0, w: 5},  // right (preferred)
+        {dx: 0, dy:-1, w: 2},  // up
+        {dx: 0, dy: 1, w: 2},  // down
+        {dx:-1, dy: 0, w: 0.6} // left (rare)
+      ];
+
+      // Slightly discourage immediate reversal
+      for (const c of candidates){
+        if (c.dx === -lastDir.dx && c.dy === -lastDir.dy) c.w *= 0.25;
+      }
+
+      // Build weighted list of feasible moves
+      const feas = [];
+      for(const c of candidates){
+        const nx = p.x + c.dx;
+        const ny = p.y + c.dy;
+        const key = `${nx},${ny}`;
+        if(nx < 1 || nx > GRID_W-2 || ny < 1 || ny > GRID_H-2) continue;
+        if(used.has(key)) continue;
+        // keep it progressing: discourage too much left
+        let w = c.w;
+        // prefer moves that increase x, especially later
+        w *= (c.dx === 1 ? 1.0 + i/60 : 1.0);
+        feas.push({nx, ny, dx:c.dx, dy:c.dy, w});
+      }
+
+      if(feas.length === 0){
+        // fallback: allow revisiting rarely, or restart
+        return null;
+      }
+
+      // weighted pick
+      let total = feas.reduce((s,f)=>s+f.w,0);
+      let r = rng() * total;
+      let pick = feas[0];
+      for(const f of feas){
+        r -= f.w;
+        if(r <= 0){ pick = f; break; }
+      }
+
+      p = {x: pick.nx, y: pick.ny};
+      pts.push(p);
+      used.add(`${p.x},${p.y}`);
+      lastDir = {dx: pick.dx, dy: pick.dy};
+    }
+
+    // ensure we end reasonably to the right
+    return pts;
+  }
+
+  function newRace(forcedSeed){
+    seed = (forcedSeed ?? (Math.floor(Math.random()*1e9))) >>> 0;
+    rng = mulberry32(seed);
+
+    // robust generation: retry up to a few times
+    let t = null;
+    for(let k=0;k<20;k++){
+      t = generateTrack();
+      if(t) break;
+      seed = (seed + 1337) >>> 0;
+      rng = mulberry32(seed);
+    }
+    if(!t){
+      // extremely unlikely; fall back to a straight track
+      t = Array.from({length: TRACK_LEN+1}, (_,i)=>({x:2+i, y:Math.floor(GRID_H/2)}));
+    }
+    track = t;
+
+    // start lanes randomly
+    laneA = 0;
+    laneB = 1;
+    posA = 0; posB = 0;
+    fuel = FUEL_MAX;
+    rollA = null; rollB = null;
+    phase = "needRoll";
+    choiceA = null; choiceB = null;
+
+    anim.a.pos = posA; anim.a.lane = laneA;
+    anim.b.pos = posB; anim.b.lane = laneB;
+    anim.active = false;
+
+    seedTag.textContent = `SEED ${seed}`;
+    elLog.textContent = "";
+    log("NEW RACE");
+    syncUI();
+    draw();
+  }
+
+  // ---------- core rules ----------
+  function occupied(lane, pos){
+    return (lane === laneA && pos === posA) || (lane === laneB && pos === posB);
+  }
+
+  function otherFor(player){
+    if(player === "A"){
+      return {pos: posB, lane: laneB, roll: rollB, choice: choiceB};
+    } else {
+      return {pos: posA, lane: laneA, roll: rollA, choice: choiceA};
+    }
+  }
+
+  function tryAccelerate(player){
+    const isA = player === "A";
+    const myLane = isA ? laneA : laneB;
+    const myPos  = isA ? posA  : posB;
+    const myRoll = isA ? rollA : rollB;
+    const other = otherFor(player);
+
+    let target = Math.min(TRACK_LEN, myPos + myRoll);
+
+    // block only if other is in same lane and ahead within the move
+    if(other.lane === myLane && other.pos > myPos && other.pos <= target){
+      target = other.pos - 1; // stop short
+    }
+    // also ensure target isn't occupied (defensive)
+    if(other.lane === myLane && other.pos === target){
+      target = Math.max(myPos, target - 1);
+    }
+    return target;
+  }
+
+  function tryPass(player){
+    const isA = player === "A";
+    const myLane = isA ? laneA : laneB;
+    const myPos  = isA ? posA  : posB;
+    const myRoll = isA ? rollA : rollB;
+    const other = otherFor(player);
+
+    // must beat opponent roll strictly
+    if(myRoll <= other.roll) return {lane: myLane, pos: myPos, ok:false, reason:"roll"};
+
+    const newLane = myLane === 0 ? 1 : 0;
+    // cannot pass into occupied slot at same index
+    if(other.lane === newLane && other.pos === myPos) return {lane: myLane, pos: myPos, ok:false, reason:"occupied"};
+
+    return {lane: newLane, pos: myPos, ok:true};
+  }
+
+  // CPU: low-IQ, beatable, tries to win, no deep planning.
+  function cpuChoose(){
+    // At choice time: CPU knows its own roll and the board, but not your choice.
+    // It will bias toward ACCELERATE, and attempt PASS sometimes when:
+    // - it's blocked soon in current lane, or
+    // - it is behind and has a strong roll, or
+    // - late in fuel and behind.
+    const behind = posB < posA;
+    const late = fuel <= 6;
+    const otherLaneOccupiedSameIndex = (laneA !== laneB && posA === posB) ? true : false; // should never happen by rule
+    const blockedIfAccel = (() => {
+      if(laneB !== laneA) return false;
+      const target = Math.min(TRACK_LEN, posB + rollB);
+      return (posA > posB && posA <= target);
+    })();
+
+    let pPass = 0.18;
+    if(blockedIfAccel) pPass += 0.35;
+    if(behind && rollB >= 5) pPass += 0.18;
+    if(behind && late) pPass += 0.22;
+    if(!behind && rollB <= 2) pPass -= 0.08;
+
+    pPass = clamp(pPass, 0.05, 0.55);
+
+    // extra dumbness: sometimes it just accelerates no matter what
+    const r = rng();
+    if(r < pPass) return "PASS";
+    return "ACCELERATE";
+  }
+
+  function syncUI(){
+    elFuelNum.textContent = String(fuel);
+    elFuelBar.style.width = `${(fuel / FUEL_MAX) * 100}%`;
+
+    elRA.textContent = (rollA ?? "–");
+    elRB.textContent = (phase === "needChoice" || phase === "resolving" || phase === "over") ? (rollB ?? "–") : "–";
+
+    btnRoll.disabled = !(phase === "needRoll");
+    btnAccel.disabled = !(phase === "needChoice");
+    btnPass.disabled = !(phase === "needChoice");
+
+    btnMute.textContent = `SPEED: ${speedMode.toUpperCase()}`;
+  }
+
+  function flash(text, color){
+    msgFlash = {text, color, t0: performance.now(), ms: 800};
+  }
+
+  function endIfOver(){
+    if(posA >= TRACK_LEN || posB >= TRACK_LEN || fuel <= 0){
+      phase = "over";
+      btnRoll.disabled = true;
+      btnAccel.disabled = true;
+      btnPass.disabled = true;
+
+      const winner = (posA === posB) ? "TIE" : (posA > posB ? "A WINS" : "B WINS");
+      log(`— ${winner} —  (A:${posA}  B:${posB})`);
+      flash(winner, (winner === "A WINS") ? COLORS.A : (winner === "B WINS" ? COLORS.B : "#dce6ff"));
+      syncUI();
+      draw();
+      return true;
+    }
+    return false;
+  }
+
+  function animateTo(newState){
+    anim.active = true;
+    anim.t0 = performance.now();
+    anim.ms = animMs();
+    anim.from = {
+      a:{pos: anim.a.pos, lane: anim.a.lane},
+      b:{pos: anim.b.pos, lane: anim.b.lane},
+    };
+    anim.to = {
+      a:{pos: newState.posA, lane: newState.laneA},
+      b:{pos: newState.posB, lane: newState.laneB},
+    };
+    requestAnimationFrame(tickAnim);
+  }
+
+  function tickAnim(){
+    if(!anim.active) return;
+    const t = (performance.now() - anim.t0) / anim.ms;
+    const u = clamp(t, 0, 1);
+    // smoothstep
+    const s = u*u*(3-2*u);
+
+    anim.a.pos  = anim.from.a.pos  + (anim.to.a.pos  - anim.from.a.pos ) * s;
+    anim.a.lane = anim.from.a.lane + (anim.to.a.lane - anim.from.a.lane) * s;
+
+    anim.b.pos  = anim.from.b.pos  + (anim.to.b.pos  - anim.from.b.pos ) * s;
+    anim.b.lane = anim.from.b.lane + (anim.to.b.lane - anim.from.b.lane) * s;
+
+    draw();
+
+    if(u < 1){
+      requestAnimationFrame(tickAnim);
+    } else {
+      anim.active = false;
+      anim.a.pos = anim.to.a.pos; anim.a.lane = anim.to.a.lane;
+      anim.b.pos = anim.to.b.pos; anim.b.lane = anim.to.b.lane;
+      draw();
+      // finish resolving
+      phase = "needRoll";
+      choiceA = null; choiceB = null;
+      rollA = null; rollB = null;
+      syncUI();
+      endIfOver();
+    }
+  }
+
+  function resolveTurn(){
+    phase = "resolving";
+
+    // reveal CPU roll
+    elRB.textContent = String(rollB);
+    syncUI();
+
+    // Determine intended moves
+    let next = {posA, laneA, posB, laneB};
+    let noteA = null, noteB = null;
+
+    // Resolve PASS first (lane change), then ACCELERATE forward.
+    // This keeps rules simple and consistent.
+    if(choiceA === "PASS"){
+      const res = tryPass("A");
+      if(res.ok){ next.laneA = res.lane; }
+      else { noteA = res.reason === "roll" ? "A PASS FAILED (ROLL)" : "A PASS FAILED (BLOCKED)"; }
+    }
+    if(choiceB === "PASS"){
+      const res = tryPass("B");
+      if(res.ok){ next.laneB = res.lane; }
+      else { noteB = res.reason === "roll" ? "B PASS FAILED (ROLL)" : "B PASS FAILED (BLOCKED)"; }
+    }
+
+    // If both attempt to pass into same slot (should be impossible because same index swap),
+    // we guard: disallow B's lane change if it would collide.
+    if(next.posA === next.posB && next.laneA === next.laneB){
+      // revert B pass (CPU loses tie)
+      next.laneB = laneB;
+      noteB = "B PASS FAILED (COLLISION)";
+    }
+
+    // Apply ACCELERATE
+    // For forward blocking we need current positions; update temporarily for lane changes
+    const saved = {posA, laneA, posB, laneB};
+    ({posA, laneA, posB, laneB} = next);
+
+    if(choiceA === "ACCELERATE"){
+      next.posA = tryAccelerate("A");
+    }
+    if(choiceB === "ACCELERATE"){
+      next.posB = tryAccelerate("B");
+    }
+
+    // restore saved before committing after animation target computed
+    ({posA, laneA, posB, laneB} = saved);
+
+    // apply fuel
+    fuel = Math.max(0, fuel - 1);
+
+    // log
+    log(`A:${choiceA.padEnd(10)} r${rollA}   |   B:${choiceB.padEnd(10)} r${rollB}`);
+    if(noteA) log(noteA);
+    if(noteB) log(noteB);
+
+    // show quick flash for pass failures
+    if(noteA && noteA.includes("FAILED")) flash("A PASS FAILED", COLORS.B);
+    if(noteB && noteB.includes("FAILED")) flash("B PASS FAILED", COLORS.A);
+
+    // commit after animation completes
+    // set real positions to animation target at the end of anim; but we need them now for endIfOver? we do after.
+    // We'll store target state in anim and then commit at end of tick (we commit via anim.to; then at end we set anim to exact).
+    // For correctness, commit immediately to state variables and let anim draw interpolate from previous display values.
+    // (This keeps blocking / end-of-game logic consistent.)
+    posA = next.posA; laneA = next.laneA;
+    posB = next.posB; laneB = next.laneB;
+
+    // update fuel display now
+    syncUI();
+
+    // animate from current displayed anim positions to new integer state
+    animateTo({posA, laneA, posB, laneB});
+  }
+
+  // ---------- input handlers ----------
+  btnRoll.addEventListener('click', () => {
+    if(phase !== "needRoll") return;
+
+    rollA = randInt(rng, 1, 6);
+    rollB = randInt(rng, 1, 6);
+
+    // show only A roll; hide B roll until resolution
+    elRA.textContent = String(rollA);
+    elRB.textContent = "–";
+
+    phase = "needChoice";
+    syncUI();
+    draw();
+  });
+
+  function choose(action){
+    if(phase !== "needChoice") return;
+    choiceA = action;
+    // CPU chooses now, "secretly"
+    choiceB = cpuChoose();
+
+    // Resolve
+    resolveTurn();
+  }
+  btnAccel.addEventListener('click', () => choose("ACCELERATE"));
+  btnPass.addEventListener('click', () => choose("PASS"));
+
+  btnNew.addEventListener('click', () => newRace());
+  btnMute.addEventListener('click', () => {
+    speedMode = (speedMode === "normal") ? "fast" : "normal";
+    syncUI();
+  });
+
+  // ---------- rendering ----------
+  function gridToScreen(pt, pad){
+    // map grid points to canvas coords with padding and scaling
+    const w = canvas.getBoundingClientRect().width;
+    const h = canvas.getBoundingClientRect().height;
+
+    const innerW = w - pad*2;
+    const innerH = h - pad*2;
+
+    const sx = innerW / (GRID_W - 1);
+    const sy = innerH / (GRID_H - 1);
+
+    return { x: pad + pt.x * sx, y: pad + pt.y * sy };
+  }
+
+  function laneOffsetAt(i){
+    // compute a perpendicular normal based on local direction for lane separation
+    const a = track[Math.max(0, i-1)];
+    const b = track[Math.min(track.length-1, i+1)];
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    // perpendicular
+    let nx = -dy;
+    let ny = dx;
+    const len = Math.hypot(nx, ny) || 1;
+    nx /= len; ny /= len;
+    return {nx, ny};
+  }
+
+  function pointOnLane(posFloat, lane){
+    const i0 = Math.floor(posFloat);
+    const i1 = Math.min(TRACK_LEN, i0 + 1);
+    const t = posFloat - i0;
+
+    const p0 = track[i0];
+    const p1 = track[i1];
+    const base = {
+      x: p0.x + (p1.x - p0.x) * t,
+      y: p0.y + (p1.y - p0.y) * t
+    };
+
+    const {nx, ny} = laneOffsetAt(i0);
+    const laneSep = 0.35; // in grid units
+    const side = (lane === 0 ? -1 : 1);
+    return { x: base.x + nx * laneSep * side, y: base.y + ny * laneSep * side };
+  }
+
+  function drawTrack(pad){
+    // draw center path and two lane rails
+    const ptsCenter = track.map(pt => gridToScreen(pt, pad));
+    // rails: offset each point by normal
+    const rail0 = [];
+    const rail1 = [];
+    for(let i=0;i<track.length;i++){
+      const {nx, ny} = laneOffsetAt(i);
+      const laneSep = 0.35;
+      const p = track[i];
+      rail0.push(gridToScreen({x: p.x + nx*laneSep*-1, y: p.y + ny*laneSep*-1}, pad));
+      rail1.push(gridToScreen({x: p.x + nx*laneSep* 1, y: p.y + ny*laneSep* 1}, pad));
+    }
+
+    // glow underlay
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.strokeStyle = COLORS.trackGlow;
+    ctx.lineWidth = 18;
+    ctx.beginPath();
+    ctx.moveTo(ptsCenter[0].x, ptsCenter[0].y);
+    for(const p of ptsCenter) ctx.lineTo(p.x, p.y);
+    ctx.stroke();
+
+    // rails
+    ctx.strokeStyle = COLORS.track;
+    ctx.lineWidth = 8;
+    const strokeLine = (arr) => {
+      ctx.beginPath();
+      ctx.moveTo(arr[0].x, arr[0].y);
+      for(const p of arr) ctx.lineTo(p.x, p.y);
+      ctx.stroke();
+    };
+    strokeLine(rail0);
+    strokeLine(rail1);
+
+    // start/finish labels
+    const start = ptsCenter[0];
+    const finish = ptsCenter[ptsCenter.length-1];
+
+    ctx.fillStyle = "rgba(233,238,247,.7)";
+    ctx.font = "700 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
+    ctx.fillText("START", start.x + 10, start.y - 10);
+    ctx.fillText("FINISH", finish.x + 10, finish.y - 10);
+
+    // finish line
+    ctx.strokeStyle = "rgba(233,238,247,.18)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(finish.x - 12, finish.y - 12);
+    ctx.lineTo(finish.x + 12, finish.y + 12);
+    ctx.stroke();
+  }
+
+  function drawRacer(label, color, posFloat, laneFloat){
+    // laneFloat will be 0..1 during animation; pick interpolated point by blending lane offsets
+    const lane0 = pointOnLane(posFloat, 0);
+    const lane1 = pointOnLane(posFloat, 1);
+    const laneT = clamp(laneFloat, 0, 1);
+    const p = {
+      x: lane0.x + (lane1.x - lane0.x) * laneT,
+      y: lane0.y + (lane1.y - lane0.y) * laneT
+    };
+
+    const sp = gridToScreen(p, 34);
+
+    // drop shadow
+    ctx.fillStyle = "rgba(0,0,0,.55)";
+    ctx.beginPath();
+    ctx.arc(sp.x + 2, sp.y + 2, 14, 0, Math.PI*2);
+    ctx.fill();
+
+    // body
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(sp.x, sp.y, 14, 0, Math.PI*2);
+    ctx.fill();
+
+    // letter
+    ctx.fillStyle = "#0b0c10";
+    ctx.font = "900 16px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(label, sp.x, sp.y + 0.5);
+  }
+
+  function drawHUD(){
+    // top overlay: simple big rolls / phase message
+    const w = canvas.getBoundingClientRect().width;
+    ctx.textAlign = "left";
+    ctx.textBaseline = "top";
+
+    ctx.fillStyle = "rgba(0,0,0,.35)";
+    ctx.fillRect(14, 14, 220, 54);
+    ctx.strokeStyle = "rgba(255,255,255,.08)";
+    ctx.strokeRect(14, 14, 220, 54);
+
+    ctx.fillStyle = "rgba(233,238,247,.85)";
+    ctx.font = "800 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
+    ctx.fillText(`FUEL ${fuel}/${FUEL_MAX}`, 26, 24);
+
+    ctx.font = "900 18px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
+    const ra = (rollA ?? "–");
+    const rb = (phase === "needChoice" || phase === "resolving" || phase === "over") ? (rollB ?? "–") : "–";
+    ctx.fillText(`A ${ra}   B ${rb}`, 26, 40);
+
+    // flash message
+    if(msgFlash){
+      const t = (performance.now() - msgFlash.t0) / msgFlash.ms;
+      if(t >= 1){ msgFlash = null; return; }
+      const alpha = (t < 0.15) ? (t/0.15) : (t > 0.85 ? (1-t)/0.15 : 1);
+      ctx.fillStyle = `rgba(0,0,0,${0.40*alpha})`;
+      ctx.fillRect(w/2 - 140, 18, 280, 44);
+      ctx.strokeStyle = `rgba(255,255,255,${0.10*alpha})`;
+      ctx.strokeRect(w/2 - 140, 18, 280, 44);
+
+      ctx.fillStyle = msgFlash.color;
+      ctx.font = "900 16px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(msgFlash.text, w/2, 40);
+    }
+  }
+
+  function draw(){
+    const w = canvas.getBoundingClientRect().width;
+    const h = canvas.getBoundingClientRect().height;
+
+    ctx.clearRect(0,0,w,h);
+
+    // subtle background grid
+    ctx.fillStyle = "#0b0c10";
+    ctx.fillRect(0,0,w,h);
+    ctx.strokeStyle = "rgba(255,255,255,.035)";
+    ctx.lineWidth = 1;
+    for(let x=0;x<w;x+=24){
+      ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,h); ctx.stroke();
+    }
+    for(let y=0;y<h;y+=24){
+      ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(w,y); ctx.stroke();
+    }
+
+    drawTrack(34);
+
+    // racers (animated floats)
+    drawRacer("A", COLORS.A, anim.a.pos, anim.a.lane);
+    drawRacer("B", COLORS.B, anim.b.pos, anim.b.lane);
+
+    drawHUD();
+  }
+
+  // ---------- bootstrap ----------
+  fitCanvas();
+  newRace();
+
+  // small safeguard: never allow illegal overlap after any action
+  // (debug self-check)
+  function invariantCheck(){
+    const ok = !(posA === posB && laneA === laneB);
+    if(!ok){
+      log("INVARIANT VIOLATION: overlap detected. Auto-fixing.");
+      // separate by forcing B into other lane if possible, else move it back one
+      const altLane = laneB === 0 ? 1 : 0;
+      if(!(laneA === altLane && posA === posB)) laneB = altLane;
+      else posB = Math.max(0, posB - 1);
+    }
+  }
+  // run after each frame where anim is inactive
+  const _draw = draw;
+  draw = function(){
+    if(!anim.active) invariantCheck();
+    _draw();
+  };
+})();
+</script>
+</body>
+</html>
