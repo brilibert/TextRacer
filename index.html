@@ -250,9 +250,9 @@
   const TRACK_LEN = 60;       // indices: 0..TRACK_LEN
   const FUEL_MAX  = 22;       // turns
   const PASS_RANGE = 3;       // must be within 3 spaces to attempt PASS
-  const PASS_FAIL_FWD = 2;    // if PASS fails, still move +2 (blocked normally)
+  const PASS_FAIL_FWD = 2;    // if PASS fails, still move +2 (destination-occupied adjustment still applies)
 
-  const GRID_W = 24, GRID_H = 14; // for path generation
+  const GRID_W = 24, GRID_H = 14;
 
   const COLORS = {
     A: getComputedStyle(document.documentElement).getPropertyValue('--a').trim(),
@@ -283,14 +283,16 @@
   const btnSpeed = document.getElementById('btnSpeed');
 
   function log(line){
-    elLog.textContent = (line + "\n" + elLog.textContent).slice(0, 3200);
+    elLog.textContent = (line + "\n" + elLog.textContent).slice(0, 3600);
   }
+
+  const laneName = (n) => n === 0 ? "L" : "R";
 
   // ---------- game state ----------
   let rng, seed;
-  let track = [];     // [{x,y}] grid points (centerline)
+  let track = [];
   let posA = 0, posB = 0;
-  let laneA = 0, laneB = 1; // 0/1
+  let laneA = 0, laneB = 1;
   let fuel = FUEL_MAX;
 
   let rollA = null, rollB = null;
@@ -342,7 +344,6 @@
         {dx: 0, dy: 1, w: 2},
         {dx:-1, dy: 0, w: 0.6},
       ];
-
       for(const c of candidates){
         if(c.dx === -lastDir.dx && c.dy === -lastDir.dy) c.w *= 0.25;
       }
@@ -408,34 +409,59 @@
     draw();
   }
 
-  // ---------- rules ----------
-  function tryAccelerate(player, cur){
+  // ---------- movement rules ----------
+  // IMPORTANT CHANGE:
+  // Movement is EXACTLY the intended steps (roll or +2), with only ONE adjustment:
+  // If your destination square is occupied (same lane, same index), back up by 1.
+  function applyDestinationOccupancy(player, cur, laneAfter, intendedTarget){
     const isA = player === "A";
-    const myLane = isA ? cur.laneA : cur.laneB;
+    const myStartPos = isA ? cur.posA : cur.posB;
+    const otherPos   = isA ? cur.posB : cur.posA;
+    const otherLane  = isA ? cur.laneB : cur.laneA;
+
+    let target = clamp(intendedTarget, 0, TRACK_LEN);
+    let adjusted = false;
+    let reason = null;
+
+    if(otherLane === laneAfter && otherPos === target){
+      adjusted = true;
+      reason = "occupied";
+      target = target - 1;
+      if(target < myStartPos) target = myStartPos; // can't go backwards
+    }
+    return {pos: target, adjusted, reason};
+  }
+
+  function moveAccelerate(player, cur){
+    const isA = player === "A";
     const myPos  = isA ? cur.posA  : cur.posB;
+    const myLane = isA ? cur.laneA : cur.laneB;
     const myRoll = isA ? rollA : rollB;
-    const oth = isA ? {pos:cur.posB, lane:cur.laneB} : {pos:cur.posA, lane:cur.laneA};
 
-    let target = Math.min(TRACK_LEN, myPos + myRoll);
-    if(oth.lane === myLane && oth.pos > myPos && oth.pos <= target){
-      target = oth.pos - 1;
-    }
-    return Math.max(myPos, target);
+    const intended = Math.min(TRACK_LEN, myPos + myRoll);
+    const applied = applyDestinationOccupancy(player, cur, myLane, intended);
+
+    return {
+      intendedTarget: intended,
+      ...applied
+    };
   }
 
-  function tryForwardFixed(player, cur, steps){
+  function moveForwardFixed(player, cur, steps){
     const isA = player === "A";
-    const myLane = isA ? cur.laneA : cur.laneB;
     const myPos  = isA ? cur.posA  : cur.posB;
-    const oth = isA ? {pos:cur.posB, lane:cur.laneB} : {pos:cur.posA, lane:cur.laneA};
+    const myLane = isA ? cur.laneA : cur.laneB;
 
-    let target = Math.min(TRACK_LEN, myPos + steps);
-    if(oth.lane === myLane && oth.pos > myPos && oth.pos <= target){
-      target = oth.pos - 1;
-    }
-    return Math.max(myPos, target);
+    const intended = Math.min(TRACK_LEN, myPos + steps);
+    const applied = applyDestinationOccupancy(player, cur, myLane, intended);
+
+    return {
+      intendedTarget: intended,
+      ...applied
+    };
   }
 
+  // ---------- pass rules ----------
   function tryPass(player, cur){
     const isA = player === "A";
     const myLane = isA ? cur.laneA : cur.laneB;
@@ -446,39 +472,28 @@
       ? {pos:cur.posB, lane:cur.laneB, roll:rollB}
       : {pos:cur.posA, lane:cur.laneA, roll:rollA};
 
-    // proximity gate
     if (Math.abs(myPos - oth.pos) > PASS_RANGE) return {ok:false, lane:myLane, reason:"range"};
-
-    // must beat opponent roll
     if (myRoll <= oth.roll) return {ok:false, lane:myLane, reason:"roll"};
 
     const newLane = myLane === 0 ? 1 : 0;
 
-    // target slot at same index must be empty
+    // Can't change lanes into an occupied slot at the same index.
     if (oth.lane === newLane && oth.pos === myPos) return {ok:false, lane:myLane, reason:"occupied"};
 
     return {ok:true, lane:newLane, reason:null};
   }
 
-  // CPU: shallow and beatable
+  // CPU: shallow & beatable
   function cpuChoose(){
-    const behind = posB < posA;
     const close = Math.abs(posB - posA) <= PASS_RANGE;
-
-    const blockedIfAccel = (() => {
-      if(laneB !== laneA) return false;
-      const t = Math.min(TRACK_LEN, posB + rollB);
-      return (posA > posB && posA <= t);
-    })();
+    const behind = posB < posA;
 
     let pPass = 0.06;
-    if(close) pPass += 0.10;
-    if(blockedIfAccel) pPass += 0.30;
-    if(behind && close && rollB >= 5) pPass += 0.18;
+    if(close) pPass += 0.16;
+    if(behind && close && rollB >= 5) pPass += 0.12;
     if(fuel <= 6 && behind && close) pPass += 0.10;
 
     if(!close) pPass = 0.02;
-
     pPass = clamp(pPass, 0.02, 0.55);
     return (rng() < pPass) ? "PASS" : "ACCELERATE";
   }
@@ -498,8 +513,8 @@
     btnSpeed.textContent = `SPEED: ${speedMode.toUpperCase()}`;
 
     hintText.innerHTML =
-      `<div><strong>ACCELERATE</strong>: move forward by your roll (stop short if blocked).</div>
-       <div style="margin-top:6px"><strong>PASS</strong>: within <span class="kbd">${PASS_RANGE}</span> spaces and roll &gt; B’s roll. If PASS fails, you still move <span class="kbd">+${PASS_FAIL_FWD}</span>.</div>`;
+      `<div><strong>ACCELERATE</strong>: move exactly your roll (clamped). Only adjustment: if destination occupied, you stop 1 short.</div>
+       <div style="margin-top:6px"><strong>PASS</strong>: within <span class="kbd">${PASS_RANGE}</span> spaces and roll &gt; B’s roll. If PASS fails, you still move <span class="kbd">+${PASS_FAIL_FWD}</span> (same destination rule).</div>`;
   }
 
   function endIfOver(){
@@ -521,7 +536,7 @@
   function animateTo(target){
     anim.active = true;
     anim.t0 = performance.now();
-    anim.ms = (speedMode === "fast") ? 120 : 240;
+    anim.ms = animMs();
 
     anim.from = {
       a:{pos: anim.a.pos, lane: anim.a.lane},
@@ -563,92 +578,140 @@
     }
   }
 
-  // ---------- resolving (A’s-seat reporting) ----------
-  function reasonTextA(reason){
+  // ---------- logging helpers ----------
+  function passFailTextA(reason){
     if(reason === "range") return `A PASS FAIL: TOO FAR`;
     if(reason === "roll") return `A PASS FAIL: SLOWER`;
     return `A PASS FAIL: BLOCKED`;
   }
 
+  function logMove(player, kind, rollText, startPos, startLane, intendedTarget, endPos, endLane, adjusted, adjReason){
+    const lanePart = (startLane === endLane) ? laneName(endLane) : `${laneName(startLane)}→${laneName(endLane)}`;
+    let s = `${player} ${kind} ${lanePart} ${startPos}→${intendedTarget} (${rollText})`;
+    if(adjusted){
+      const why = (adjReason === "occupied") ? "DEST OCCUPIED" : String(adjReason || "ADJ");
+      s += `  adj→${endPos} [${why}]`;
+    } else {
+      if(endPos !== intendedTarget) s += `  adj→${endPos}`;
+    }
+    return s;
+  }
+
+  // ---------- resolve turn ----------
   function resolveTurn(){
     phase = "resolving";
     syncUI();
     elRB.textContent = String(rollB);
 
+    const start = {posA, laneA, posB, laneB};
     const cur = {posA, laneA, posB, laneB};
     const next = {posA, laneA, posB, laneB};
 
     const bothPass = (choiceA === "PASS" && choiceB === "PASS");
     let noteA = null;
+
     let aPassFailed = false;
     let bPassFailed = false;
 
-    // PASS phase (lane changes)
-    if (bothPass){
+    // PASS phase (lane changes only)
+    if(bothPass){
       const resA = tryPass("A", cur);
       const resB = tryPass("B", cur);
 
-      if (resA.ok) next.laneA = resA.lane;
-      else { noteA = reasonTextA(resA.reason); aPassFailed = true; }
+      if(resA.ok){ next.laneA = resA.lane; noteA = "A PASS SUCCESS"; }
+      else { noteA = passFailTextA(resA.reason); aPassFailed = true; }
 
-      if (resB.ok) next.laneB = resB.lane;
+      if(resB.ok){ next.laneB = resB.lane; }
       else { bPassFailed = true; }
 
-      // Guard illegal overlap (CPU yields)
+      // guard overlap by letting CPU yield
       if(next.posA === next.posB && next.laneA === next.laneB){
         next.laneB = cur.laneB;
       }
-
-      if(!noteA) noteA = "A PASS SUCCESS";
-
     } else {
-      // A pass attempt
       if(choiceA === "PASS"){
         const resA = tryPass("A", cur);
-        if(resA.ok) { next.laneA = resA.lane; noteA = "A PASS SUCCESS"; }
-        else { noteA = reasonTextA(resA.reason); aPassFailed = true; }
+        if(resA.ok){ next.laneA = resA.lane; noteA = "A PASS SUCCESS"; }
+        else { noteA = passFailTextA(resA.reason); aPassFailed = true; }
       }
-
-      // CPU pass attempt (no UI spam)
       if(choiceB === "PASS"){
         const resB = tryPass("B", cur);
-        if(resB.ok) next.laneB = resB.lane;
-        else bPassFailed = true;
+        if(resB.ok){ next.laneB = resB.lane; }
+        else { bPassFailed = true; }
       }
-
-      // Guard overlap (CPU yields)
       if(next.posA === next.posB && next.laneA === next.laneB){
         next.laneB = cur.laneB;
       }
     }
 
-    // ACCELERATE phase (forward movement), using updated lanes
+    // Movement phase (exact steps; destination occupancy only)
     const afterPass = {posA: next.posA, laneA: next.laneA, posB: next.posB, laneB: next.laneB};
 
+    let aMove = null;
+    let bMove = null;
+
     if(choiceA === "ACCELERATE"){
-      next.posA = tryAccelerate("A", afterPass);
+      aMove = moveAccelerate("A", afterPass);
+      next.posA = aMove.pos;
     } else if(choiceA === "PASS" && aPassFailed){
-      next.posA = tryForwardFixed("A", afterPass, PASS_FAIL_FWD);
+      aMove = moveForwardFixed("A", afterPass, PASS_FAIL_FWD);
+      next.posA = aMove.pos;
+    } else {
+      // PASS success means no forward move this turn
+      aMove = { intendedTarget: afterPass.posA, pos: afterPass.posA, adjusted:false, reason:null };
+      next.posA = afterPass.posA;
     }
 
     if(choiceB === "ACCELERATE"){
-      next.posB = tryAccelerate("B", afterPass);
+      bMove = moveAccelerate("B", afterPass);
+      next.posB = bMove.pos;
     } else if(choiceB === "PASS" && bPassFailed){
-      next.posB = tryForwardFixed("B", afterPass, PASS_FAIL_FWD);
+      bMove = moveForwardFixed("B", afterPass, PASS_FAIL_FWD);
+      next.posB = bMove.pos;
+    } else {
+      bMove = { intendedTarget: afterPass.posB, pos: afterPass.posB, adjusted:false, reason:null };
+      next.posB = afterPass.posB;
     }
 
     // consume fuel
     fuel = Math.max(0, fuel - 1);
 
-    // log turn (choices visible; only A note)
+    // --- Log: choices/rolls + explicit intended vs adjusted movement ---
     log(`A:${choiceA.padEnd(10)} r${rollA} | B:${choiceB.padEnd(10)} r${rollB}`);
+
+    const aRollText = (choiceA === "ACCELERATE") ? `r${rollA}` :
+                      (choiceA === "PASS" && aPassFailed) ? `+${PASS_FAIL_FWD} (passfail)` :
+                      (choiceA === "PASS") ? `0 (pass)` : `?`;
+
+    const bRollText = (choiceB === "ACCELERATE") ? `r${rollB}` :
+                      (choiceB === "PASS" && bPassFailed) ? `+${PASS_FAIL_FWD} (passfail)` :
+                      (choiceB === "PASS") ? `0 (pass)` : `?`;
+
+    log(logMove("A",
+      (choiceA === "ACCELERATE") ? "ACC" : (choiceA === "PASS" && aPassFailed) ? "PASSFAIL" : "PASS",
+      aRollText,
+      start.posA, start.laneA,
+      aMove.intendedTarget,
+      next.posA, next.laneA,
+      aMove.adjusted, aMove.reason
+    ));
+
+    log(logMove("B",
+      (choiceB === "ACCELERATE") ? "ACC" : (choiceB === "PASS" && bPassFailed) ? "PASSFAIL" : "PASS",
+      bRollText,
+      start.posB, start.laneB,
+      bMove.intendedTarget,
+      next.posB, next.laneB,
+      bMove.adjusted, bMove.reason
+    ));
+
     if(noteA){
       log(noteA);
       if(noteA.includes("FAIL")) doFlash(noteA, COLORS.B);
       if(noteA.includes("SUCCESS")) doFlash(noteA, COLORS.A);
     }
 
-    // commit and animate
+    // commit & animate
     posA = next.posA; laneA = next.laneA;
     posB = next.posB; laneB = next.laneB;
 
@@ -733,7 +796,6 @@
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
 
-    // glow underlay
     ctx.strokeStyle = COLORS.glow;
     ctx.lineWidth = 18;
     ctx.beginPath();
@@ -741,7 +803,6 @@
     for(const p of center) ctx.lineTo(p.x, p.y);
     ctx.stroke();
 
-    // rails
     const stroke = (arr) => {
       ctx.strokeStyle = COLORS.rail;
       ctx.lineWidth = 8;
@@ -752,7 +813,6 @@
     };
     stroke(rail0); stroke(rail1);
 
-    // labels
     const start = center[0];
     const finish = center[center.length-1];
     ctx.fillStyle = "rgba(233,238,247,.7)";
@@ -760,7 +820,6 @@
     ctx.fillText("START", start.x + 10, start.y - 10);
     ctx.fillText("FINISH", finish.x + 10, finish.y - 10);
 
-    // finish slash
     ctx.strokeStyle = "rgba(233,238,247,.18)";
     ctx.lineWidth = 2;
     ctx.beginPath();
@@ -776,19 +835,16 @@
     const p = { x: p0.x + (p1.x - p0.x) * t, y: p0.y + (p1.y - p0.y) * t };
     const sp = gridToScreen(p, 34);
 
-    // shadow
     ctx.fillStyle = "rgba(0,0,0,.55)";
     ctx.beginPath();
     ctx.arc(sp.x+2, sp.y+2, 14, 0, Math.PI*2);
     ctx.fill();
 
-    // body
     ctx.fillStyle = color;
     ctx.beginPath();
     ctx.arc(sp.x, sp.y, 14, 0, Math.PI*2);
     ctx.fill();
 
-    // letter
     ctx.fillStyle = "#0b0c10";
     ctx.font = "900 16px system-ui, -apple-system, Segoe UI, Roboto, Arial";
     ctx.textAlign = "center";
@@ -800,9 +856,9 @@
     const w = canvas.getBoundingClientRect().width;
 
     ctx.fillStyle = "rgba(0,0,0,.35)";
-    ctx.fillRect(14, 14, 240, 54);
+    ctx.fillRect(14, 14, 260, 54);
     ctx.strokeStyle = "rgba(255,255,255,.08)";
-    ctx.strokeRect(14, 14, 240, 54);
+    ctx.strokeRect(14, 14, 260, 54);
 
     ctx.fillStyle = "rgba(233,238,247,.85)";
     ctx.textAlign = "left";
@@ -841,7 +897,6 @@
     ctx.fillStyle = "#0b0c10";
     ctx.fillRect(0,0,w,h);
 
-    // subtle grid
     ctx.strokeStyle = "rgba(255,255,255,.035)";
     ctx.lineWidth = 1;
     for(let x=0;x<w;x+=24){ ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,h); ctx.stroke(); }
@@ -856,10 +911,8 @@
   // ---------- bootstrap ----------
   fitCanvas();
   newRace();
-
 })();
 </script>
 </body>
 </html>
-
 
