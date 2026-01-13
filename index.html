@@ -29,7 +29,6 @@
       justify-content:center;
       padding:18px;
     }
-
     .wrap{
       width:min(980px, 100%);
       display:grid;
@@ -37,7 +36,6 @@
       gap:16px;
       align-items:start;
     }
-
     .card{
       background: linear-gradient(180deg, var(--panel) 0%, var(--panel2) 100%);
       border:1px solid var(--line);
@@ -45,7 +43,6 @@
       box-shadow: 0 10px 30px var(--shadow);
       overflow:hidden;
     }
-
     .canvasWrap{padding:12px}
     canvas{
       width:100%;
@@ -55,14 +52,12 @@
       background: #0b0c10;
       border:1px solid #232938;
     }
-
     .side{
       padding:14px;
       display:flex;
       flex-direction:column;
       gap:12px;
     }
-
     .title{
       display:flex;
       align-items:flex-start;
@@ -202,9 +197,7 @@
 
       canvas{ height: 60vh; min-height: 360px; }
 
-      .controls{
-        grid-template-columns: 1fr;
-      }
+      .controls{ grid-template-columns: 1fr; }
       .btn{
         min-height:64px;
         font-size:16px;
@@ -212,13 +205,8 @@
       }
       .btn.roll{ font-size:16px; }
 
-      .log{
-        max-height: 160px;
-        min-height: 120px;
-      }
-      .mini{
-        padding:12px 12px;
-      }
+      .log{ max-height: 160px; min-height: 120px; }
+      .mini{ padding:12px 12px; }
     }
   </style>
 </head>
@@ -272,6 +260,7 @@
 
 <script>
 (() => {
+  // ---------- utilities ----------
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
   const randInt = (rng, a, b) => Math.floor(rng() * (b - a + 1)) + a;
 
@@ -290,9 +279,7 @@
   const FUEL_MAX  = 22;
   const PASS_RANGE = 3;
   const PASS_FAIL_FWD = 2;
-
-  // Rubber-band: trailing racer has 25% chance of doubled roll each turn.
-  const CATCHUP_CHANCE = 0.25;
+  const CATCHUP_CHANCE = 0.25; // trailing racer on ROLL may double their roll
 
   const GRID_W = 24, GRID_H = 14;
 
@@ -325,7 +312,7 @@
   const btnSpeed = document.getElementById('btnSpeed');
 
   function log(line){
-    elLog.textContent = (line + "\n" + elLog.textContent).slice(0, 3800);
+    elLog.textContent = (line + "\n" + elLog.textContent).slice(0, 4200);
   }
 
   const laneName = (n) => n === 0 ? "L" : "R";
@@ -337,16 +324,15 @@
   let laneA = 0, laneB = 1;
   let fuel = FUEL_MAX;
 
-  // Base roll vs effective roll (effective may be doubled)
+  // base vs effective roll (effective may be doubled)
   let baseRollA = null, baseRollB = null;
   let rollA = null, rollB = null;
-
-  // Catch-up flags (for display/logging)
   let catchupA = false, catchupB = false;
 
   let choiceA = null, choiceB = null;
   let phase = "needRoll";
 
+  // animation floats
   const anim = {
     active:false,
     t0:0,
@@ -357,6 +343,7 @@
     b:{pos:0,lane:1},
   };
 
+  // hud flash
   let flash = null;
   function doFlash(text, color){
     flash = {text, color, t0: performance.now(), ms: 900};
@@ -459,7 +446,8 @@
   }
 
   // ---------- movement rules ----------
-  // Only adjustment: if destination occupied (same lane & same index), back up by 1 (never backwards).
+  // Only rule: you may NOT END on an occupied square (same lane & index).
+  // If destination occupied: back up 1 (never below your start).
   function applyDestinationOccupancy(player, cur, laneAfter, intendedTarget){
     const isA = player === "A";
     const myStartPos = isA ? cur.posA : cur.posB;
@@ -479,28 +467,18 @@
     return {pos: target, adjusted, reason};
   }
 
-  function moveAccelerate(player, cur){
+  function moveBySteps(player, cur, laneAfter, steps){
     const isA = player === "A";
     const myPos  = isA ? cur.posA  : cur.posB;
-    const myLane = isA ? cur.laneA : cur.laneB;
-    const myRoll = isA ? rollA : rollB;
-
-    const intended = Math.min(TRACK_LEN, myPos + myRoll);
-    const applied = applyDestinationOccupancy(player, cur, myLane, intended);
-    return { intendedTarget: intended, ...applied };
-  }
-
-  function moveForwardFixed(player, cur, steps){
-    const isA = player === "A";
-    const myPos  = isA ? cur.posA  : cur.posB;
-    const myLane = isA ? cur.laneA : cur.laneB;
 
     const intended = Math.min(TRACK_LEN, myPos + steps);
-    const applied = applyDestinationOccupancy(player, cur, myLane, intended);
+    const applied = applyDestinationOccupancy(player, cur, laneAfter, intended);
     return { intendedTarget: intended, ...applied };
   }
 
   // ---------- pass rules ----------
+  // PASS success = lane change AND you still move by your roll.
+  // PASS fail = move +2 in same lane (no lane change).
   function tryPass(player, cur){
     const isA = player === "A";
     const myLane = isA ? cur.laneA : cur.laneB;
@@ -511,16 +489,18 @@
       ? {pos:cur.posB, lane:cur.laneB, roll:rollB}
       : {pos:cur.posA, lane:cur.laneA, roll:rollA};
 
-    if (Math.abs(myPos - oth.pos) > PASS_RANGE) return {ok:false, lane:myLane, reason:"range"};
-    if (myRoll <= oth.roll) return {ok:false, lane:myLane, reason:"roll"};
+    if (Math.abs(myPos - oth.pos) > PASS_RANGE) return {ok:false, newLane:myLane, reason:"range"};
+    if (myRoll <= oth.roll) return {ok:false, newLane:myLane, reason:"roll"};
 
     const newLane = myLane === 0 ? 1 : 0;
 
-    if (oth.lane === newLane && oth.pos === myPos) return {ok:false, lane:myLane, reason:"occupied"};
+    // can't switch into an occupied square at your *current* index
+    if (oth.lane === newLane && oth.pos === myPos) return {ok:false, newLane:myLane, reason:"occupied"};
 
-    return {ok:true, lane:newLane, reason:null};
+    return {ok:true, newLane, reason:null};
   }
 
+  // CPU: shallow & beatable
   function cpuChoose(){
     const close = Math.abs(posB - posA) <= PASS_RANGE;
     const behind = posB < posA;
@@ -559,8 +539,8 @@
     btnSpeed.textContent = `SPEED: ${speedMode.toUpperCase()}`;
 
     hintText.innerHTML =
-      `<div><strong>ACCELERATE</strong>: move exactly your roll (clamped). Only adjustment: if destination occupied, you stop 1 short.</div>
-       <div style="margin-top:6px"><strong>PASS</strong>: within <span class="kbd">${PASS_RANGE}</span> spaces and roll &gt; B’s roll. If PASS fails, you still move <span class="kbd">+${PASS_FAIL_FWD}</span>.</div>
+      `<div><strong>ACCELERATE</strong>: move exactly your roll. Only adjustment: if destination occupied, you stop 1 short.</div>
+       <div style="margin-top:6px"><strong>PASS</strong>: within <span class="kbd">${PASS_RANGE}</span> spaces and roll &gt; B’s roll → lane change + move by your roll. If PASS fails → move <span class="kbd">+${PASS_FAIL_FWD}</span> (no lane change).</div>
        <div style="margin-top:6px"><strong>CATCH-UP</strong>: whoever is behind on ROLL has a <span class="kbd">1/4</span> chance to double their roll.</div>`;
   }
 
@@ -617,7 +597,6 @@
       anim.b.pos = anim.to.b.pos; anim.b.lane = anim.to.b.lane;
 
       choiceA = choiceB = null;
-
       baseRollA = baseRollB = null;
       rollA = rollB = null;
       catchupA = catchupB = false;
@@ -653,91 +632,102 @@
 
     const start = {posA, laneA, posB, laneB};
     const cur = {posA, laneA, posB, laneB};
-    const next = {posA, laneA, posB, laneB};
 
-    const bothPass = (choiceA === "PASS" && choiceB === "PASS");
+    // Decide pass outcomes (lane choices)
+    let aPassOk = false, bPassOk = false;
+    let aNewLane = laneA, bNewLane = laneB;
     let noteA = null;
 
-    let aPassFailed = false;
-    let bPassFailed = false;
+    if(choiceA === "PASS"){
+      const r = tryPass("A", cur);
+      aPassOk = r.ok;
+      aNewLane = r.ok ? r.newLane : laneA;
+      noteA = r.ok ? "A PASS SUCCESS" : passFailTextA(r.reason);
+    }
+    if(choiceB === "PASS"){
+      const r = tryPass("B", cur);
+      bPassOk = r.ok;
+      bNewLane = r.ok ? r.newLane : laneB;
+    }
 
-    // PASS phase (lane changes only)
-    if(bothPass){
-      const resA = tryPass("A", cur);
-      const resB = tryPass("B", cur);
-
-      if(resA.ok){ next.laneA = resA.lane; noteA = "A PASS SUCCESS"; }
-      else { noteA = passFailTextA(resA.reason); aPassFailed = true; }
-
-      if(resB.ok){ next.laneB = resB.lane; }
-      else { bPassFailed = true; }
-
-      if(next.posA === next.posB && next.laneA === next.laneB){
-        next.laneB = cur.laneB;
-      }
-    } else {
-      if(choiceA === "PASS"){
-        const resA = tryPass("A", cur);
-        if(resA.ok){ next.laneA = resA.lane; noteA = "A PASS SUCCESS"; }
-        else { noteA = passFailTextA(resA.reason); aPassFailed = true; }
-      }
-      if(choiceB === "PASS"){
-        const resB = tryPass("B", cur);
-        if(resB.ok){ next.laneB = resB.lane; }
-        else { bPassFailed = true; }
-      }
-      if(next.posA === next.posB && next.laneA === next.laneB){
-        next.laneB = cur.laneB;
+    // If both try to pass and would land in same lane at same position (lane swap collision), cancel B lane change.
+    // (This is conservative; keeps things stable without “bumping.”)
+    if(choiceA === "PASS" && choiceB === "PASS"){
+      if(aPassOk && bPassOk && aNewLane === bNewLane && cur.posA === cur.posB){
+        bPassOk = false;
+        bNewLane = laneB;
       }
     }
 
-    // Movement phase (exact steps; destination occupancy only)
-    const afterPass = {posA: next.posA, laneA: next.laneA, posB: next.posB, laneB: next.laneB};
+    // Now movement happens (this is the FIX):
+    // - ACCELERATE: move by roll in current lane
+    // - PASS success: move by roll in the NEW lane
+    // - PASS fail: move +2 in current lane
+    // - (no other states)
+    const next = { posA, laneA, posB, laneB };
 
-    let aMove = null;
-    let bMove = null;
+    // Apply lane changes first (so destination occupancy sees the correct lane).
+    next.laneA = (choiceA === "PASS" && aPassOk) ? aNewLane : laneA;
+    next.laneB = (choiceB === "PASS" && bPassOk) ? bNewLane : laneB;
 
+    // Movement calculations must consider the *other racer’s position/lane at start of movement*.
+    // We use a "curMove" object that includes lane changes but not position changes yet.
+    const curMove = { posA: cur.posA, posB: cur.posB, laneA: next.laneA, laneB: next.laneB };
+
+    let aMove, bMove;
+
+    // A
     if(choiceA === "ACCELERATE"){
-      aMove = moveAccelerate("A", afterPass);
+      aMove = moveBySteps("A", curMove, curMove.laneA, rollA);
       next.posA = aMove.pos;
-    } else if(choiceA === "PASS" && aPassFailed){
-      aMove = moveForwardFixed("A", afterPass, PASS_FAIL_FWD);
-      next.posA = aMove.pos;
-    } else {
-      aMove = { intendedTarget: afterPass.posA, pos: afterPass.posA, adjusted:false, reason:null };
-      next.posA = afterPass.posA;
+    } else { // PASS
+      if(aPassOk){
+        aMove = moveBySteps("A", curMove, curMove.laneA, rollA);
+        next.posA = aMove.pos;
+      } else {
+        aMove = moveBySteps("A", curMove, laneA, PASS_FAIL_FWD);
+        // lane stays old lane if pass failed
+        next.laneA = laneA;
+        curMove.laneA = laneA;
+        next.posA = aMove.pos;
+      }
     }
 
+    // Update curMove for B occupancy check (so B “sees” A’s new end position when checking destination occupancy)
+    const curMoveB = { posA: next.posA, laneA: next.laneA, posB: cur.posB, laneB: next.laneB };
+
+    // B
     if(choiceB === "ACCELERATE"){
-      bMove = moveAccelerate("B", afterPass);
+      bMove = moveBySteps("B", curMoveB, curMoveB.laneB, rollB);
       next.posB = bMove.pos;
-    } else if(choiceB === "PASS" && bPassFailed){
-      bMove = moveForwardFixed("B", afterPass, PASS_FAIL_FWD);
-      next.posB = bMove.pos;
-    } else {
-      bMove = { intendedTarget: afterPass.posB, pos: afterPass.posB, adjusted:false, reason:null };
-      next.posB = afterPass.posB;
+    } else { // PASS
+      if(bPassOk){
+        bMove = moveBySteps("B", curMoveB, curMoveB.laneB, rollB);
+        next.posB = bMove.pos;
+      } else {
+        bMove = moveBySteps("B", curMoveB, laneB, PASS_FAIL_FWD);
+        next.laneB = laneB;
+        next.posB = bMove.pos;
+      }
     }
 
     fuel = Math.max(0, fuel - 1);
 
-    const aRollText = catchupA ? `${baseRollA}→${rollA}` : `r${rollA}`;
-    const bRollText = catchupB ? `${baseRollB}→${rollB}` : `r${rollB}`;
-
-    log(`A:${choiceA.padEnd(10)} ${aRollText.padEnd(6)} | B:${choiceB.padEnd(10)} ${bRollText}`);
+    // Logging
+    const aRollTxt = catchupA ? `${baseRollA}→${rollA}` : `r${rollA}`;
+    const bRollTxt = catchupB ? `${baseRollB}→${rollB}` : `r${rollB}`;
+    log(`A:${choiceA.padEnd(10)} ${aRollTxt.padEnd(6)} | B:${choiceB.padEnd(10)} ${bRollTxt}`);
     if(catchupA) log(`CATCH-UP: A roll doubled (${baseRollA}→${rollA})`);
     if(catchupB) log(`CATCH-UP: B roll doubled (${baseRollB}→${rollB})`);
 
-    const aMoveKind = (choiceA === "ACCELERATE") ? "ACC" : (choiceA === "PASS" && aPassFailed) ? "PASSFAIL" : "PASS";
-    const bMoveKind = (choiceB === "ACCELERATE") ? "ACC" : (choiceB === "PASS" && bPassFailed) ? "PASSFAIL" : "PASS";
+    const aKind = (choiceA === "ACCELERATE") ? "ACC" : (aPassOk ? "PASS" : "PASSFAIL");
+    const bKind = (choiceB === "ACCELERATE") ? "ACC" : (bPassOk ? "PASS" : "PASSFAIL");
 
-    const aMoveRollText = (aMoveKind === "ACC") ? aRollText :
-                          (aMoveKind === "PASSFAIL") ? `+${PASS_FAIL_FWD} (passfail)` : `0 (pass)`;
-    const bMoveRollText = (bMoveKind === "ACC") ? bRollText :
-                          (bMoveKind === "PASSFAIL") ? `+${PASS_FAIL_FWD} (passfail)` : `0 (pass)`;
+    const aMoveRollText = (aKind === "ACC") ? aRollTxt : (aKind === "PASS") ? aRollTxt : `+${PASS_FAIL_FWD} (passfail)`;
+    const bMoveRollText = (bKind === "ACC") ? bRollTxt : (bKind === "PASS") ? bRollTxt : `+${PASS_FAIL_FWD} (passfail)`;
 
-    log(logMove("A", aMoveKind, aMoveRollText, start.posA, start.laneA, aMove.intendedTarget, next.posA, next.laneA, aMove.adjusted, aMove.reason));
-    log(logMove("B", bMoveKind, bMoveRollText, start.posB, start.laneB, bMove.intendedTarget, next.posB, next.laneB, bMove.adjusted, bMove.reason));
+    log(logMove("A", aKind, aMoveRollText, start.posA, start.laneA, aMove.intendedTarget, next.posA, next.laneA, aMove.adjusted, aMove.reason));
+    log(logMove("B", bKind, bMoveRollText, start.posB, start.laneB, bMove.intendedTarget, next.posB, next.laneB, bMove.adjusted, bMove.reason));
 
     if(noteA){
       log(noteA);
@@ -919,8 +909,9 @@
     catchupA = false;
     catchupB = false;
 
-    if(posA === posB) return; // tie: no catch-up
+    if(posA === posB) return;
     const trailing = (posA < posB) ? "A" : "B";
+
     if(rng() < CATCHUP_CHANCE){
       if(trailing === "A"){ catchupA = true; rollA = baseRollA * 2; }
       else { catchupB = true; rollB = baseRollB * 2; }
@@ -939,7 +930,6 @@
 
     applyCatchupDoubles();
 
-    // Show the catch-up flash (subtle)
     if(catchupA) doFlash(`CATCH-UP: A ${baseRollA}→${rollA}`, COLORS.A);
     if(catchupB) doFlash(`CATCH-UP: B ${baseRollB}→${rollB}`, COLORS.B);
 
@@ -970,4 +960,3 @@
 </script>
 </body>
 </html>
-
