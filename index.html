@@ -477,32 +477,36 @@
     }
   }
 
-  function cpuChooseAction(){
-    // CPU is intentionally shallow and beatable.
-    // CPU can also attempt PASS with same eligibility (B behind within 3 and rollB > rollA).
-    const bBehind = posB < posA;
-    const bWithin = (posA - posB) <= PASS_RANGE;
-    const bFaster = rollB > rollA;
-    const bCanPass = bBehind && bWithin && bFaster;
-
-    // If CPU can pass, do it sometimes, more if late-game.
-    if(bCanPass){
-      let p = 0.22;
-      if(fuel <= 8) p += 0.10;
-      if((posA - posB) === 1) p += 0.12; // right on the bumper
-      p = clamp(p, 0.18, 0.55);
-      return (rng() < p) ? "PASS" : "ACCELERATE";
-    }
-
-    return "ACCELERATE";
-  }
+  
 
   // ---------- UI ----------
   function rollDisplayText(player){
     const isA = player === "A";
     const base = isA ? baseRollA : baseRollB;
     const eff  = isA ? rollA : rollB;
-    const cUp  = isA ? catchupA : catchupB;
+function cpuChooseAction(){
+  // CPU is intentionally shallow and beatable.
+  // CPU can also attempt PASS with same eligibility (B behind within PASS_RANGE and rollB > rollA).
+  const bBehind = posB < posA;
+  const gap = posA - posB;                 // positive when B is behind
+  const bWithin = gap <= PASS_RANGE;
+  const bFaster = rollB > rollA;
+  const bCanPass = bBehind && bWithin && bFaster;
+
+  // NEW: if ACCELERATE would already overtake (end ahead of A), never choose PASS.
+  // To end ahead: posB + rollB > posA  ⇔  rollB > gap
+  const accelWouldOvertake = bBehind && (rollB > gap);
+
+  if(bCanPass && !accelWouldOvertake){
+    let p = 0.22;
+    if(fuel <= 8) p += 0.10;
+    if(gap === 1) p += 0.12; // right on the bumper
+    p = clamp(p, 0.18, 0.55);
+    return (rng() < p) ? "PASS" : "ACCELERATE";
+  }
+
+  return "ACCELERATE";
+}    const cUp  = isA ? catchupA : catchupB;
     if(base == null || eff == null) return "–";
     return cUp ? `${base}→${eff}` : String(eff);
   }
@@ -865,4 +869,5 @@
 </script>
 </body>
 </html>
+
 
