@@ -30,7 +30,6 @@
       padding:18px;
     }
 
-    /* Desktop layout */
     .wrap{
       width:min(980px, 100%);
       display:grid;
@@ -192,14 +191,12 @@
       background: rgba(255,255,255,.06);
     }
 
-    /* ---------- Mobile layout ---------- */
     @media (max-width: 900px){
       body{ padding:12px; }
       .wrap{
         grid-template-columns: 1fr;
         gap:12px;
       }
-      /* Show controls first on mobile */
       .side{ order: 0; }
       .canvasWrap{ order: 1; }
 
@@ -275,7 +272,6 @@
 
 <script>
 (() => {
-  // ---------- utilities ----------
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
   const randInt = (rng, a, b) => Math.floor(rng() * (b - a + 1)) + a;
 
@@ -294,6 +290,9 @@
   const FUEL_MAX  = 22;
   const PASS_RANGE = 3;
   const PASS_FAIL_FWD = 2;
+
+  // Rubber-band: trailing racer has 25% chance of doubled roll each turn.
+  const CATCHUP_CHANCE = 0.25;
 
   const GRID_W = 24, GRID_H = 14;
 
@@ -338,12 +337,16 @@
   let laneA = 0, laneB = 1;
   let fuel = FUEL_MAX;
 
+  // Base roll vs effective roll (effective may be doubled)
+  let baseRollA = null, baseRollB = null;
   let rollA = null, rollB = null;
-  let choiceA = null, choiceB = null;
 
+  // Catch-up flags (for display/logging)
+  let catchupA = false, catchupB = false;
+
+  let choiceA = null, choiceB = null;
   let phase = "needRoll";
 
-  // animation floats
   const anim = {
     active:false,
     t0:0,
@@ -354,7 +357,6 @@
     b:{pos:0,lane:1},
   };
 
-  // hud flash
   let flash = null;
   function doFlash(text, color){
     flash = {text, color, t0: performance.now(), ms: 900};
@@ -437,7 +439,11 @@
     posB = 0; laneB = 1;
 
     fuel = FUEL_MAX;
+
+    baseRollA = baseRollB = null;
     rollA = rollB = null;
+    catchupA = catchupB = false;
+
     choiceA = choiceB = null;
     phase = "needRoll";
 
@@ -453,6 +459,7 @@
   }
 
   // ---------- movement rules ----------
+  // Only adjustment: if destination occupied (same lane & same index), back up by 1 (never backwards).
   function applyDestinationOccupancy(player, cur, laneAfter, intendedTarget){
     const isA = player === "A";
     const myStartPos = isA ? cur.posA : cur.posB;
@@ -480,7 +487,6 @@
 
     const intended = Math.min(TRACK_LEN, myPos + myRoll);
     const applied = applyDestinationOccupancy(player, cur, myLane, intended);
-
     return { intendedTarget: intended, ...applied };
   }
 
@@ -491,7 +497,6 @@
 
     const intended = Math.min(TRACK_LEN, myPos + steps);
     const applied = applyDestinationOccupancy(player, cur, myLane, intended);
-
     return { intendedTarget: intended, ...applied };
   }
 
@@ -516,7 +521,6 @@
     return {ok:true, lane:newLane, reason:null};
   }
 
-  // CPU: shallow & beatable
   function cpuChoose(){
     const close = Math.abs(posB - posA) <= PASS_RANGE;
     const behind = posB < posA;
@@ -532,12 +536,21 @@
   }
 
   // ---------- UI ----------
+  function rollDisplayText(player){
+    const isA = player === "A";
+    const base = isA ? baseRollA : baseRollB;
+    const eff  = isA ? rollA : rollB;
+    const cUp  = isA ? catchupA : catchupB;
+    if(base == null || eff == null) return "–";
+    return cUp ? `${base}→${eff}` : String(eff);
+  }
+
   function syncUI(){
     elFuelNum.textContent = String(fuel);
     elFuelBar.style.width = `${(fuel / FUEL_MAX) * 100}%`;
 
-    elRA.textContent = rollA ?? "–";
-    elRB.textContent = (phase === "needChoice" || phase === "resolving" || phase === "over") ? (rollB ?? "–") : "–";
+    elRA.textContent = rollDisplayText("A");
+    elRB.textContent = (phase === "needChoice" || phase === "resolving" || phase === "over") ? rollDisplayText("B") : "–";
 
     btnRoll.disabled  = !(phase === "needRoll");
     btnAccel.disabled = !(phase === "needChoice");
@@ -547,7 +560,8 @@
 
     hintText.innerHTML =
       `<div><strong>ACCELERATE</strong>: move exactly your roll (clamped). Only adjustment: if destination occupied, you stop 1 short.</div>
-       <div style="margin-top:6px"><strong>PASS</strong>: within <span class="kbd">${PASS_RANGE}</span> spaces and roll &gt; B’s roll. If PASS fails, you still move <span class="kbd">+${PASS_FAIL_FWD}</span> (same destination rule).</div>`;
+       <div style="margin-top:6px"><strong>PASS</strong>: within <span class="kbd">${PASS_RANGE}</span> spaces and roll &gt; B’s roll. If PASS fails, you still move <span class="kbd">+${PASS_FAIL_FWD}</span>.</div>
+       <div style="margin-top:6px"><strong>CATCH-UP</strong>: whoever is behind on ROLL has a <span class="kbd">1/4</span> chance to double their roll.</div>`;
   }
 
   function endIfOver(){
@@ -603,7 +617,11 @@
       anim.b.pos = anim.to.b.pos; anim.b.lane = anim.to.b.lane;
 
       choiceA = choiceB = null;
+
+      baseRollA = baseRollB = null;
       rollA = rollB = null;
+      catchupA = catchupB = false;
+
       phase = "needRoll";
       syncUI();
       draw();
@@ -632,7 +650,6 @@
   function resolveTurn(){
     phase = "resolving";
     syncUI();
-    elRB.textContent = String(rollB);
 
     const start = {posA, laneA, posB, laneB};
     const cur = {posA, laneA, posB, laneB};
@@ -704,33 +721,23 @@
 
     fuel = Math.max(0, fuel - 1);
 
-    log(`A:${choiceA.padEnd(10)} r${rollA} | B:${choiceB.padEnd(10)} r${rollB}`);
+    const aRollText = catchupA ? `${baseRollA}→${rollA}` : `r${rollA}`;
+    const bRollText = catchupB ? `${baseRollB}→${rollB}` : `r${rollB}`;
 
-    const aRollText = (choiceA === "ACCELERATE") ? `r${rollA}` :
-                      (choiceA === "PASS" && aPassFailed) ? `+${PASS_FAIL_FWD} (passfail)` :
-                      (choiceA === "PASS") ? `0 (pass)` : `?`;
+    log(`A:${choiceA.padEnd(10)} ${aRollText.padEnd(6)} | B:${choiceB.padEnd(10)} ${bRollText}`);
+    if(catchupA) log(`CATCH-UP: A roll doubled (${baseRollA}→${rollA})`);
+    if(catchupB) log(`CATCH-UP: B roll doubled (${baseRollB}→${rollB})`);
 
-    const bRollText = (choiceB === "ACCELERATE") ? `r${rollB}` :
-                      (choiceB === "PASS" && bPassFailed) ? `+${PASS_FAIL_FWD} (passfail)` :
-                      (choiceB === "PASS") ? `0 (pass)` : `?`;
+    const aMoveKind = (choiceA === "ACCELERATE") ? "ACC" : (choiceA === "PASS" && aPassFailed) ? "PASSFAIL" : "PASS";
+    const bMoveKind = (choiceB === "ACCELERATE") ? "ACC" : (choiceB === "PASS" && bPassFailed) ? "PASSFAIL" : "PASS";
 
-    log(logMove("A",
-      (choiceA === "ACCELERATE") ? "ACC" : (choiceA === "PASS" && aPassFailed) ? "PASSFAIL" : "PASS",
-      aRollText,
-      start.posA, start.laneA,
-      aMove.intendedTarget,
-      next.posA, next.laneA,
-      aMove.adjusted, aMove.reason
-    ));
+    const aMoveRollText = (aMoveKind === "ACC") ? aRollText :
+                          (aMoveKind === "PASSFAIL") ? `+${PASS_FAIL_FWD} (passfail)` : `0 (pass)`;
+    const bMoveRollText = (bMoveKind === "ACC") ? bRollText :
+                          (bMoveKind === "PASSFAIL") ? `+${PASS_FAIL_FWD} (passfail)` : `0 (pass)`;
 
-    log(logMove("B",
-      (choiceB === "ACCELERATE") ? "ACC" : (choiceB === "PASS" && bPassFailed) ? "PASSFAIL" : "PASS",
-      bRollText,
-      start.posB, start.laneB,
-      bMove.intendedTarget,
-      next.posB, next.laneB,
-      bMove.adjusted, bMove.reason
-    ));
+    log(logMove("A", aMoveKind, aMoveRollText, start.posA, start.laneA, aMove.intendedTarget, next.posA, next.laneA, aMove.adjusted, aMove.reason));
+    log(logMove("B", bMoveKind, bMoveRollText, start.posB, start.laneB, bMove.intendedTarget, next.posB, next.laneB, bMove.adjusted, bMove.reason));
 
     if(noteA){
       log(noteA);
@@ -744,33 +751,6 @@
     syncUI();
     animateTo({posA, laneA, posB, laneB});
   }
-
-  // ---------- input ----------
-  btnRoll.addEventListener('click', () => {
-    if(phase !== "needRoll") return;
-
-    rollA = randInt(rng, 1, 6);
-    rollB = randInt(rng, 1, 6);
-
-    phase = "needChoice";
-    syncUI();
-    draw();
-  });
-
-  function choose(action){
-    if(phase !== "needChoice") return;
-    choiceA = action;
-    choiceB = cpuChoose();
-    resolveTurn();
-  }
-  btnAccel.addEventListener('click', () => choose("ACCELERATE"));
-  btnPass.addEventListener('click',  () => choose("PASS"));
-
-  btnNew.addEventListener('click', () => newRace());
-  btnSpeed.addEventListener('click', () => {
-    speedMode = (speedMode === "normal") ? "fast" : "normal";
-    syncUI();
-  });
 
   // ---------- rendering ----------
   function gridToScreen(pt, pad){
@@ -881,11 +861,10 @@
   function drawHUD(){
     const w = canvas.getBoundingClientRect().width;
 
-    // HUD box
     ctx.fillStyle = "rgba(0,0,0,.35)";
-    ctx.fillRect(14, 14, 290, 54);
+    ctx.fillRect(14, 14, 310, 54);
     ctx.strokeStyle = "rgba(255,255,255,.08)";
-    ctx.strokeRect(14, 14, 290, 54);
+    ctx.strokeRect(14, 14, 310, 54);
 
     ctx.fillStyle = "rgba(233,238,247,.85)";
     ctx.textAlign = "left";
@@ -893,7 +872,6 @@
     ctx.font = "800 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
     ctx.fillText(`FUEL ${fuel}/${FUEL_MAX}`, 26, 24);
 
-    // REPLACED: show positions + differential (no rolls here)
     const diff = posA - posB;
     const diffText = diff === 0 ? "TIE" : (diff > 0 ? `A+${diff}` : `B+${Math.abs(diff)}`);
     ctx.font = "900 16px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
@@ -935,6 +913,55 @@
     drawRacer("B", COLORS.B, anim.b.pos, anim.b.lane);
     drawHUD();
   }
+
+  // ---------- ROLL with catch-up ----------
+  function applyCatchupDoubles(){
+    catchupA = false;
+    catchupB = false;
+
+    if(posA === posB) return; // tie: no catch-up
+    const trailing = (posA < posB) ? "A" : "B";
+    if(rng() < CATCHUP_CHANCE){
+      if(trailing === "A"){ catchupA = true; rollA = baseRollA * 2; }
+      else { catchupB = true; rollB = baseRollB * 2; }
+    }
+  }
+
+  // ---------- input ----------
+  btnRoll.addEventListener('click', () => {
+    if(phase !== "needRoll") return;
+
+    baseRollA = randInt(rng, 1, 6);
+    baseRollB = randInt(rng, 1, 6);
+
+    rollA = baseRollA;
+    rollB = baseRollB;
+
+    applyCatchupDoubles();
+
+    // Show the catch-up flash (subtle)
+    if(catchupA) doFlash(`CATCH-UP: A ${baseRollA}→${rollA}`, COLORS.A);
+    if(catchupB) doFlash(`CATCH-UP: B ${baseRollB}→${rollB}`, COLORS.B);
+
+    phase = "needChoice";
+    syncUI();
+    draw();
+  });
+
+  function choose(action){
+    if(phase !== "needChoice") return;
+    choiceA = action;
+    choiceB = cpuChoose();
+    resolveTurn();
+  }
+  btnAccel.addEventListener('click', () => choose("ACCELERATE"));
+  btnPass.addEventListener('click',  () => choose("PASS"));
+
+  btnNew.addEventListener('click', () => newRace());
+  btnSpeed.addEventListener('click', () => {
+    speedMode = (speedMode === "normal") ? "fast" : "normal";
+    syncUI();
+  });
 
   // ---------- bootstrap ----------
   fitCanvas();
