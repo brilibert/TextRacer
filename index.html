@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Text Racer v2</title>
+  <title>PASS / ACCELERATE</title>
   <style>
     :root{
       --bg:#0e0f12;
@@ -29,7 +29,6 @@
       justify-content:center;
       padding:18px;
     }
-
     .wrap{
       width:min(980px, 100%);
       display:grid;
@@ -37,7 +36,6 @@
       gap:16px;
       align-items:start;
     }
-
     .card{
       background: linear-gradient(180deg, var(--panel) 0%, var(--panel2) 100%);
       border:1px solid var(--line);
@@ -45,7 +43,6 @@
       box-shadow: 0 10px 30px var(--shadow);
       overflow:hidden;
     }
-
     .canvasWrap{padding:12px}
     canvas{
       width:100%;
@@ -55,14 +52,12 @@
       background: #0b0c10;
       border:1px solid #232938;
     }
-
     .side{
       padding:14px;
       display:flex;
       flex-direction:column;
       gap:12px;
     }
-
     .title{
       display:flex;
       align-items:flex-start;
@@ -102,7 +97,6 @@
       min-width: 92px;
       justify-content:center;
     }
-
     .fuel{
       height:12px;
       background:#0b0c10;
@@ -118,7 +112,6 @@
       border-right:1px solid rgba(255,255,255,.15);
       transition: width .25s ease;
     }
-
     .controls{
       display:grid;
       grid-template-columns:1fr 1fr;
@@ -154,7 +147,6 @@
       border-radius:14px;
       background: rgba(255,255,255,.02);
     }
-
     .log{
       border:1px solid var(--line);
       border-radius:14px;
@@ -194,23 +186,13 @@
 
     @media (max-width: 900px){
       body{ padding:12px; }
-      .wrap{
-        grid-template-columns: 1fr;
-        gap:12px;
-      }
+      .wrap{ grid-template-columns: 1fr; gap:12px; }
       .side{ order: 0; }
       .canvasWrap{ order: 1; }
-
       canvas{ height: 60vh; min-height: 360px; }
-
       .controls{ grid-template-columns: 1fr; }
-      .btn{
-        min-height:64px;
-        font-size:16px;
-        border-radius:20px;
-      }
+      .btn{ min-height:64px; font-size:16px; border-radius:20px; }
       .btn.roll{ font-size:16px; }
-
       .log{ max-height: 160px; min-height: 120px; }
       .mini{ padding:12px 12px; }
     }
@@ -286,6 +268,7 @@
 
   // PASS: eligibility + overtake
   const PASS_RANGE = 4; // must be within 4 *and behind*
+
   // Separate pass roll is a d6; win strictly to pass.
   const CATCHUP_CHANCE = 0.25; // trailing racer on MOVEMENT roll may double their movement roll
 
@@ -456,7 +439,7 @@
 
   // ---------- rules ----------
   function isAPassEligible(){
-    // PASS only makes sense if A is behind, within 3, and has a higher movement roll.
+    // PASS only makes sense if A is behind, within PASS_RANGE, and has a higher movement roll.
     if(phase !== "needChoice") return false;
     if(rollA == null || rollB == null) return false;
     const behind = posA < posB;
@@ -477,36 +460,35 @@
     }
   }
 
-  
+  function cpuChooseAction(){
+    // CPU is intentionally shallow and beatable.
+    // CPU can PASS with same eligibility (B behind within PASS_RANGE and rollB > rollA).
+    const bBehind = posB < posA;
+    const gap = posA - posB; // positive when B is behind
+    const bWithin = gap <= PASS_RANGE;
+    const bFaster = rollB > rollA;
+    const bCanPass = bBehind && bWithin && bFaster;
+
+    // NEW: if ACCELERATE would already overtake A (end ahead), never choose PASS.
+    // end ahead means: posB + rollB > posA  <=>  rollB > gap
+    const accelWouldOvertake = bBehind && (rollB > gap);
+
+    if(bCanPass && !accelWouldOvertake){
+      let p = 0.22;
+      if(fuel <= 8) p += 0.10;
+      if(gap === 1) p += 0.12; // right on the bumper
+      p = clamp(p, 0.18, 0.55);
+      return (rng() < p) ? "PASS" : "ACCELERATE";
+    }
+    return "ACCELERATE";
+  }
 
   // ---------- UI ----------
   function rollDisplayText(player){
     const isA = player === "A";
     const base = isA ? baseRollA : baseRollB;
     const eff  = isA ? rollA : rollB;
-function cpuChooseAction(){
-  // CPU is intentionally shallow and beatable.
-  // CPU can also attempt PASS with same eligibility (B behind within PASS_RANGE and rollB > rollA).
-  const bBehind = posB < posA;
-  const gap = posA - posB;                 // positive when B is behind
-  const bWithin = gap <= PASS_RANGE;
-  const bFaster = rollB > rollA;
-  const bCanPass = bBehind && bWithin && bFaster;
-
-  // NEW: if ACCELERATE would already overtake (end ahead of A), never choose PASS.
-  // To end ahead: posB + rollB > posA  ⇔  rollB > gap
-  const accelWouldOvertake = bBehind && (rollB > gap);
-
-  if(bCanPass && !accelWouldOvertake){
-    let p = 0.22;
-    if(fuel <= 8) p += 0.10;
-    if(gap === 1) p += 0.12; // right on the bumper
-    p = clamp(p, 0.18, 0.55);
-    return (rng() < p) ? "PASS" : "ACCELERATE";
-  }
-
-  return "ACCELERATE";
-}    const cUp  = isA ? catchupA : catchupB;
+    const cUp  = isA ? catchupA : catchupB;
     if(base == null || eff == null) return "–";
     return cUp ? `${base}→${eff}` : String(eff);
   }
@@ -647,11 +629,9 @@ function cpuChooseAction(){
     const p = pointOnTrack(posFloat);
     const sp = gridToScreen(p, 34);
 
-    // small perpendicular-ish nudge so A and B aren’t perfectly stacked
-    const nx = 0;
-    const ny = 1;
-    const x = sp.x + nx * nudge;
-    const y = sp.y + ny * nudge;
+    // simple fixed nudge so A and B aren’t perfectly stacked
+    const x = sp.x;
+    const y = sp.y + nudge;
 
     ctx.fillStyle = "rgba(0,0,0,.55)";
     ctx.beginPath();
@@ -748,16 +728,14 @@ function cpuChooseAction(){
     const actionA = choiceA;
     const actionB = choiceB;
 
-    // We'll resolve both actions using the *start-of-turn* positions.
-    // That keeps PASS deterministic: "jump to B+1" means B's position at start of resolution.
+    // Resolve using start-of-turn positions.
     let nextA = startA;
     let nextB = startB;
 
-    // Determine B move (CPU)
+    // B move
     if(actionB === "ACCELERATE"){
       nextB = clamp(startB + rollB, 0, TRACK_LEN);
     } else {
-      // CPU PASS eligibility mirrors A: must be behind, within 3, and have higher movement roll
       const bBehind = startB < startA;
       const bWithin = (startA - startB) <= PASS_RANGE;
       const bFaster = rollB > rollA;
@@ -770,22 +748,20 @@ function cpuChooseAction(){
           doFlash("B PASS SUCCESS", COLORS.B);
           log("B PASS SUCCESS → B jumps to A+1");
         } else {
-          nextB = startB; // stay
+          nextB = startB;
           doFlash("B PASS FAIL", COLORS.A);
           log("B PASS FAIL → B stays");
         }
       } else {
-        // if CPU chose PASS but isn't eligible, treat as stay (keeps CPU dumb)
         nextB = startB;
         log("B PASS not eligible → B stays");
       }
     }
 
-    // Determine A move
+    // A move
     if(actionA === "ACCELERATE"){
       nextA = clamp(startA + rollA, 0, TRACK_LEN);
-    } else { // PASS
-      // Eligibility for A PASS
+    } else {
       const aBehind = startA < startB;
       const aWithin = (startB - startA) <= PASS_RANGE;
       const aFaster = rollA > rollB;
@@ -799,12 +775,11 @@ function cpuChooseAction(){
           doFlash("A PASS SUCCESS", COLORS.A);
           log("A PASS SUCCESS → A jumps to B+1");
         } else {
-          nextA = startA; // stay
+          nextA = startA;
           doFlash("A PASS FAIL", COLORS.B);
           log("A PASS FAIL → A stays");
         }
       } else {
-        // should be impossible because button disabled, but keep it safe
         nextA = startA;
         log("A PASS not eligible → A stays");
       }
@@ -812,13 +787,11 @@ function cpuChooseAction(){
 
     fuel = Math.max(0, fuel - 1);
 
-    // Turn summary log (compact and readable)
     log(`A:${actionA.padEnd(10)} ${movementRollText("A").padEnd(6)} | B:${actionB.padEnd(10)} ${movementRollText("B")}`);
     if(catchupA) log(`CATCH-UP: A movement roll doubled (${baseRollA}→${rollA})`);
     if(catchupB) log(`CATCH-UP: B movement roll doubled (${baseRollB}→${rollB})`);
     log(`MOVE: A ${startA}→${nextA} | B ${startB}→${nextB}`);
 
-    // Commit and animate
     posA = nextA;
     posB = nextB;
 
@@ -869,5 +842,3 @@ function cpuChooseAction(){
 </script>
 </body>
 </html>
-
-
