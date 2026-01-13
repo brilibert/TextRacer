@@ -29,13 +29,16 @@
       justify-content:center;
       padding:18px;
     }
+
+    /* Desktop layout */
     .wrap{
       width:min(980px, 100%);
       display:grid;
       grid-template-columns: 1fr 320px;
       gap:16px;
+      align-items:start;
     }
-    @media (max-width: 900px){ .wrap{grid-template-columns:1fr} }
+
     .card{
       background: linear-gradient(180deg, var(--panel) 0%, var(--panel2) 100%);
       border:1px solid var(--line);
@@ -43,6 +46,7 @@
       box-shadow: 0 10px 30px var(--shadow);
       overflow:hidden;
     }
+
     .canvasWrap{padding:12px}
     canvas{
       width:100%;
@@ -52,12 +56,14 @@
       background: #0b0c10;
       border:1px solid #232938;
     }
+
     .side{
       padding:14px;
       display:flex;
       flex-direction:column;
       gap:12px;
     }
+
     .title{
       display:flex;
       align-items:flex-start;
@@ -76,6 +82,7 @@
     }
     .sub{ color:var(--muted); font-size:12px; margin-top:4px; }
     .tag{ font-size:12px; color:var(--muted); }
+
     .row{
       display:flex; gap:10px; align-items:center; justify-content:space-between;
       padding:10px 12px;
@@ -111,6 +118,7 @@
       border-right:1px solid rgba(255,255,255,.15);
       transition: width .25s ease;
     }
+
     .controls{
       display:grid;
       grid-template-columns:1fr 1fr;
@@ -137,6 +145,7 @@
     .btn:active{transform: translateY(1px)}
     .btn[disabled]{ opacity:.45; cursor:not-allowed; transform:none; }
     .btn.roll{ grid-column: 1 / -1; font-size:15px; }
+
     .hint{
       color:var(--muted);
       font-size:12px;
@@ -145,6 +154,7 @@
       border-radius:14px;
       background: rgba(255,255,255,.02);
     }
+
     .log{
       border:1px solid var(--line);
       border-radius:14px;
@@ -158,6 +168,7 @@
       color:#d6ddf2;
       white-space:pre-wrap;
     }
+
     .miniBtns{ display:flex; gap:10px; }
     .mini{
       cursor:pointer;
@@ -179,6 +190,38 @@
       border-radius:8px;
       color:#dce6ff;
       background: rgba(255,255,255,.06);
+    }
+
+    /* ---------- Mobile layout ---------- */
+    @media (max-width: 900px){
+      body{ padding:12px; }
+      .wrap{
+        grid-template-columns: 1fr;
+        gap:12px;
+      }
+      /* Show controls first on mobile */
+      .side{ order: 0; }
+      .canvasWrap{ order: 1; }
+
+      canvas{ height: 60vh; min-height: 360px; }
+
+      .controls{
+        grid-template-columns: 1fr;
+      }
+      .btn{
+        min-height:64px;
+        font-size:16px;
+        border-radius:20px;
+      }
+      .btn.roll{ font-size:16px; }
+
+      .log{
+        max-height: 160px;
+        min-height: 120px;
+      }
+      .mini{
+        padding:12px 12px;
+      }
     }
   </style>
 </head>
@@ -206,7 +249,7 @@
       </div>
 
       <div class="row">
-        <div class="tag">Rolls</div>
+        <div class="tag">Current roll</div>
         <div style="display:flex;gap:10px">
           <div class="pill" style="border-color: rgba(82,255,168,.35)">A: <strong id="rA">–</strong></div>
           <div class="pill" style="border-color: rgba(255,92,122,.35)">B: <strong id="rB">–</strong></div>
@@ -247,10 +290,10 @@
   }
 
   // ---------- config ----------
-  const TRACK_LEN = 60;       // indices: 0..TRACK_LEN
-  const FUEL_MAX  = 22;       // turns
-  const PASS_RANGE = 3;       // must be within 3 spaces to attempt PASS
-  const PASS_FAIL_FWD = 2;    // if PASS fails, still move +2 (destination-occupied adjustment still applies)
+  const TRACK_LEN = 60;
+  const FUEL_MAX  = 22;
+  const PASS_RANGE = 3;
+  const PASS_FAIL_FWD = 2;
 
   const GRID_W = 24, GRID_H = 14;
 
@@ -261,7 +304,7 @@
     glow: "rgba(82,255,168,.08)"
   };
 
-  let speedMode = "normal"; // normal | fast
+  let speedMode = "normal";
   const animMs = () => speedMode === "fast" ? 120 : 240;
 
   // ---------- DOM ----------
@@ -283,7 +326,7 @@
   const btnSpeed = document.getElementById('btnSpeed');
 
   function log(line){
-    elLog.textContent = (line + "\n" + elLog.textContent).slice(0, 3600);
+    elLog.textContent = (line + "\n" + elLog.textContent).slice(0, 3800);
   }
 
   const laneName = (n) => n === 0 ? "L" : "R";
@@ -298,7 +341,7 @@
   let rollA = null, rollB = null;
   let choiceA = null, choiceB = null;
 
-  let phase = "needRoll"; // needRoll -> needChoice -> resolving -> over
+  let phase = "needRoll";
 
   // animation floats
   const anim = {
@@ -312,7 +355,7 @@
   };
 
   // hud flash
-  let flash = null; // {text,color,t0,ms}
+  let flash = null;
   function doFlash(text, color){
     flash = {text, color, t0: performance.now(), ms: 900};
   }
@@ -410,9 +453,6 @@
   }
 
   // ---------- movement rules ----------
-  // IMPORTANT CHANGE:
-  // Movement is EXACTLY the intended steps (roll or +2), with only ONE adjustment:
-  // If your destination square is occupied (same lane, same index), back up by 1.
   function applyDestinationOccupancy(player, cur, laneAfter, intendedTarget){
     const isA = player === "A";
     const myStartPos = isA ? cur.posA : cur.posB;
@@ -427,7 +467,7 @@
       adjusted = true;
       reason = "occupied";
       target = target - 1;
-      if(target < myStartPos) target = myStartPos; // can't go backwards
+      if(target < myStartPos) target = myStartPos;
     }
     return {pos: target, adjusted, reason};
   }
@@ -441,10 +481,7 @@
     const intended = Math.min(TRACK_LEN, myPos + myRoll);
     const applied = applyDestinationOccupancy(player, cur, myLane, intended);
 
-    return {
-      intendedTarget: intended,
-      ...applied
-    };
+    return { intendedTarget: intended, ...applied };
   }
 
   function moveForwardFixed(player, cur, steps){
@@ -455,10 +492,7 @@
     const intended = Math.min(TRACK_LEN, myPos + steps);
     const applied = applyDestinationOccupancy(player, cur, myLane, intended);
 
-    return {
-      intendedTarget: intended,
-      ...applied
-    };
+    return { intendedTarget: intended, ...applied };
   }
 
   // ---------- pass rules ----------
@@ -477,7 +511,6 @@
 
     const newLane = myLane === 0 ? 1 : 0;
 
-    // Can't change lanes into an occupied slot at the same index.
     if (oth.lane === newLane && oth.pos === myPos) return {ok:false, lane:myLane, reason:"occupied"};
 
     return {ok:true, lane:newLane, reason:null};
@@ -591,8 +624,6 @@
     if(adjusted){
       const why = (adjReason === "occupied") ? "DEST OCCUPIED" : String(adjReason || "ADJ");
       s += `  adj→${endPos} [${why}]`;
-    } else {
-      if(endPos !== intendedTarget) s += `  adj→${endPos}`;
     }
     return s;
   }
@@ -624,7 +655,6 @@
       if(resB.ok){ next.laneB = resB.lane; }
       else { bPassFailed = true; }
 
-      // guard overlap by letting CPU yield
       if(next.posA === next.posB && next.laneA === next.laneB){
         next.laneB = cur.laneB;
       }
@@ -657,7 +687,6 @@
       aMove = moveForwardFixed("A", afterPass, PASS_FAIL_FWD);
       next.posA = aMove.pos;
     } else {
-      // PASS success means no forward move this turn
       aMove = { intendedTarget: afterPass.posA, pos: afterPass.posA, adjusted:false, reason:null };
       next.posA = afterPass.posA;
     }
@@ -673,10 +702,8 @@
       next.posB = afterPass.posB;
     }
 
-    // consume fuel
     fuel = Math.max(0, fuel - 1);
 
-    // --- Log: choices/rolls + explicit intended vs adjusted movement ---
     log(`A:${choiceA.padEnd(10)} r${rollA} | B:${choiceB.padEnd(10)} r${rollB}`);
 
     const aRollText = (choiceA === "ACCELERATE") ? `r${rollA}` :
@@ -711,7 +738,6 @@
       if(noteA.includes("SUCCESS")) doFlash(noteA, COLORS.A);
     }
 
-    // commit & animate
     posA = next.posA; laneA = next.laneA;
     posB = next.posB; laneB = next.laneB;
 
@@ -855,10 +881,11 @@
   function drawHUD(){
     const w = canvas.getBoundingClientRect().width;
 
+    // HUD box
     ctx.fillStyle = "rgba(0,0,0,.35)";
-    ctx.fillRect(14, 14, 260, 54);
+    ctx.fillRect(14, 14, 290, 54);
     ctx.strokeStyle = "rgba(255,255,255,.08)";
-    ctx.strokeRect(14, 14, 260, 54);
+    ctx.strokeRect(14, 14, 290, 54);
 
     ctx.fillStyle = "rgba(233,238,247,.85)";
     ctx.textAlign = "left";
@@ -866,10 +893,11 @@
     ctx.font = "800 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
     ctx.fillText(`FUEL ${fuel}/${FUEL_MAX}`, 26, 24);
 
-    const ra = rollA ?? "–";
-    const rb = (phase === "needChoice" || phase === "resolving" || phase === "over") ? (rollB ?? "–") : "–";
-    ctx.font = "900 18px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
-    ctx.fillText(`A ${ra}   B ${rb}`, 26, 40);
+    // REPLACED: show positions + differential (no rolls here)
+    const diff = posA - posB;
+    const diffText = diff === 0 ? "TIE" : (diff > 0 ? `A+${diff}` : `B+${Math.abs(diff)}`);
+    ctx.font = "900 16px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
+    ctx.fillText(`A=${posA}  B=${posB}  (${diffText})`, 26, 40);
 
     if(flash){
       const t = (performance.now() - flash.t0) / flash.ms;
@@ -915,4 +943,3 @@
 </script>
 </body>
 </html>
-
