@@ -743,12 +743,24 @@
     ctx.fillText("START", start.x + 10, start.y - 10);
     ctx.fillText("FINISH", finish.x + 10, finish.y - 10);
 
-    // finish slash
+    // finish line (perpendicular to track)
+    const finishIdx = track.length - 1;
+    const finishPt = track[finishIdx];
+    const {nx: fnx, ny: fny} = laneNormalAt(finishIdx);
+    const finishSpan = 0.8;
+    const finishA = gridToScreen(
+      {x: finishPt.x + fnx * finishSpan, y: finishPt.y + fny * finishSpan},
+      pad
+    );
+    const finishB = gridToScreen(
+      {x: finishPt.x - fnx * finishSpan, y: finishPt.y - fny * finishSpan},
+      pad
+    );
     ctx.strokeStyle = "rgba(233,238,247,.18)";
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.moveTo(finish.x - 12, finish.y - 12);
-    ctx.lineTo(finish.x + 12, finish.y + 12);
+    ctx.moveTo(finishA.x, finishA.y);
+    ctx.lineTo(finishB.x, finishB.y);
     ctx.stroke();
   }
 
@@ -842,3 +854,4 @@
 </script>
 </body>
 </html>
+
